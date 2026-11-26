@@ -1,0 +1,252 @@
+// 原 Tavo 插件 entry.js 第 11471 行起的后台接线代码，仅供块 5 重写对照，不会被加载。
+/* ===== entry glue ===== */
+(function () {
+  const E = PHYS;
+  // Tavo 1.7: during chat switch, APIs may throw conflict/chat_runtime_not_ready — retry once after chat:opened.
+  // v2.7.3: retry with backoff (~12 s total) — one 120 ms retry was not enough on Tavo 1.7 devices.
+  const isRuntimeNotReady = (e) => E.isNotReady(e);
+  const BACKOFF = [250, 500, 1000, 1500, 2500, 3000, 3500];
+  let openSeq = 0;
+  async function afterChatReady(fn, seq) {
+    for (let i = 0; ; i++) {
+      try { return await fn(); } catch (e) {
+        if (!isRuntimeNotReady(e) || i >= BACKOFF.length || (seq != null && seq !== openSeq)) throw e;
+        await new Promise((r) => setTimeout(r, BACKOFF[i]));
+      }
+    }
+  }
+  const inflight = new Set();
+
+  // v3.0.5: automatic analysis gate. The first time a chat is seen (also for existing users on this build) the current
+  // last floor is recorded as baseline; auto analysis only ever runs on the NEWEST AI floor created after it, once per
+  // content, one at a time (queued requests coalesce to the newest), failed floors auto-retry at most 2x, >= 90 s apart.
+  // Manual 分析楼层 / 重新分析 do not pass through here and work on any floor.
+  const AUTO_RETRY_MAX = 2, AUTO_RETRY_GAP = 90000;
+  const ordOf = (m) => (m && m.index != null && Number.isFinite(Number(m.index)) ? Number(m.index) : (m && Number.isFinite(Number(m.id)) ? Number(m.id) : NaN));
+  const isUserMsg = (x) => !x || x.isUser === true || x.role === 'user';
+  async function lastMsgs() { let rec = await E.recentMessages(12).catch(() => null); if (!Array.isArray(rec) || !rec.length) rec = await tavo.message.find({}).catch(() => []); return Array.isArray(rec) ? rec : []; }
+  async function ensureBaseline() {
+    const st = await E.loadState();
+    if (st.meta.autoBase) return st.meta.autoBase;
+    const rec = await lastMsgs(); const last = rec[rec.length - 1];
+    const base = { id: last && last.id != null ? String(last.id) : '', ord: last ? (Number.isFinite(ordOf(last)) ? ordOf(last) : -1) : -1, ts: Date.now() };
+    await E.mutate((s) => { if (!s.meta.autoBase) s.meta.autoBase = base; return null; });
+    return (await E.loadState()).meta.autoBase || base;
+  }
+  const hash32 = (t) => { let x = 2166136261; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(36) + ':' + t.length; };
+  const autoDone = {}; // id -> content hash already auto-analysed (ok / skipped)
+  let autoRunning = false, autoPending = null;
+
+  async function onMessageAdded(event, again) {
+    const m = event && event.message;
+    if (!m || m.id == null) return;
+    if (autoRunning) { autoPending = { message: m, again: again }; return; } // coalesce: only the newest waits
+    autoRunning = true;
+    try { await autoOnce(m, again); } finally {
+      autoRunning = false;
+      const nx = autoPending; autoPending = null;
+      if (nx) await onMessageAdded({ message: nx.message }, nx.again);
+    }
+  }
+
+  async function autoOnce(m0, again) {
+    try {
+      await E.loadAiOpts(); // the panel stores the auto-sync switch in a global variable; refresh before checking
+      const cfg = E.config();
+      if (!cfg.enabled || !cfg.autoSync) return; // auto sync off: analysis only runs from the panel's manual update
+      if (isUserMsg(m0) || m0.hidden === true) return; // a round completes on the reply
+      const base = await ensureBaseline();
+      const rec = await lastMsgs();
+      const lastAi = rec.filter((x) => x && !isUserMsg(x) && x.hidden !== true).pop();
+      if (!lastAi || String(lastAi.id) !== String(m0.id)) return; // never an older floor
+      if (base && base.id && String(lastAi.id) === base.id) return; // existed before the plugin saw this chat
+      const o = ordOf(lastAi);
+      if (base && base.ord >= 0 && Number.isFinite(o) && o <= base.ord) return; // old floor replayed
+      const m = (await E.getMessage(m0.id).catch(() => null)) || lastAi; // v3.0.22
+      const key = String(m.id); const h = hash32(String(E.msgText(m) || ''));
+      const fk = key + ':' + h;
+      if (autoDone[key] === h) return; // once per content
+      const st0 = await E.loadState(); const fail = (st0.meta.autoFail || {})[fk];
+      if (fail && (fail.n > AUTO_RETRY_MAX || Date.now() - fail.ts < AUTO_RETRY_GAP)) return; // capped / too soon
+      // v3.0.24 Bug B: catch up at most 2 earlier AI floors (after autoBase) that were never analysed — e.g. skipped by
+      // coalescing, a failed run with no later retry, or an app restart — oldest first, before the newest floor.
+      try {
+        const proc = (st0.meta && st0.meta.processed) || []; const ign = (st0.meta && st0.meta.ignored) || [];
+        const ais = rec.filter((x) => x && !isUserMsg(x) && x.hidden !== true && String(x.id) !== key);
+        const miss = ais.filter((x) => { const ox = ordOf(x); const k = String(x.id);
+          if (base && base.id && k === base.id) return false;
+          if (base && base.ord >= 0 && !(Number.isFinite(ox) && ox > base.ord)) return false;
+          return proc.indexOf(k) < 0 && ign.indexOf(k) < 0 && autoDone[k] == null; }).slice(-2);
+        for (const x of miss) { const rx = await E.runSync(x.id, {}).catch(() => null); if (rx && rx.status === 'busy') break; autoDone[String(x.id)] = hash32(String(E.msgText(x) || '')); }
+      } catch (e) { /* backlog is best effort */ }
+      let r = await E.runSync(m.id, {});
+      if (r && r.status === 'busy') { await waitIdle(30000); r = await E.runSync(m.id, {}); } // single wait, no chains
+      if (r && r.status === 'busy') { setTimeout(() => { onMessageAdded({ message: m0 }, true).catch(() => 0); }, 15000); return; } // v3.0.24: retry instead of waiting for a later event
+      // v3.0.22: nomessage is transient (opener-edit id remap) — do not pin autoDone; allow autoFail retry
+      if (r && ['ok', 'duplicate', 'ignored', 'notracked', 'superseded', 'disabled', 'hidden', 'refusal'].indexOf(r.status) >= 0) {
+        if (r.status !== 'notracked') autoDone[key] = h;
+        await E.mutate((s) => { if (s.meta.autoFail && s.meta.autoFail[fk]) delete s.meta.autoFail[fk]; return null; }).catch(() => 0);
+      } else {
+        await E.mutate((s) => { s.meta.autoFail = s.meta.autoFail || {}; const f = s.meta.autoFail[fk] || { n: 0, ts: 0 }; s.meta.autoFail[fk] = { n: f.n + 1, ts: Date.now() }; return null; }).catch(() => 0);
+        // v3.0.24 Bug B: a failed floor used to wait for the NEXT chat event (or a panel click) to retry; schedule it
+        const n1 = (((await E.loadState().catch(() => ({ meta: {} }))).meta.autoFail || {})[fk] || {}).n || 0;
+        if (n1 <= AUTO_RETRY_MAX) setTimeout(() => { onMessageAdded({ message: m0 }, true).catch(() => 0); }, AUTO_RETRY_GAP + 1000);
+      }
+      if (r && r.status === 'ok') {
+        E.autoCorruption().catch(() => 0).then(() => loreKeep(false)).then(async () => {
+          // v2.7: periodic detection of new named characters in chat (suggestions only; the user confirms)
+          try { const st = await E.loadState(); if (E.config().autoDetect !== false && st.scene && st.scene.round > 0 && st.scene.round % 6 === 0) await E.detectNewCharacters(); } catch (e) { /* ignore */ }
+        });
+      } else if (!r || ['ignored', 'duplicate', 'busy', 'notracked'].indexOf(r.status) < 0) {
+        // v2.7.3: first analysis must also make sure the per-chat lorebook exists and is attached
+        E.loreAttachedNow().then((ok) => { if (!ok) loreKeep(false); }).catch(() => 0);
+      }
+    } catch (e) {
+      try { console.warn('[physiology] message:added failed', e); } catch (_) { /* ignore */ }
+    }
+  }
+
+  async function toast(key, params) {
+    try { await tavo.utils.toast(E.t(key, params)); } catch (e) { /* ignore */ }
+  }
+
+  // v3.0.3: lorebook-request poller runs fast for 60 s after start / chat events (one handler per event, no extra on())
+  let reqHotUntil = Date.now() + 60000; const reqHot = () => { reqHotUntil = Date.now() + 60000; };
+  tavo.plugin.on('message:added', (ev) => { reqHot(); return onMessageAdded(ev); });
+
+  // v2.6: model-only physiology context. Lorebook path (per-chat book, refreshed here) + at most an urgent note,
+  // or the prefix fallback. Hard-capped so a stuck API can never block the chat; any failure injects nothing.
+  tavo.plugin.on('generation:prepare', async (event) => {
+    let timer = null;
+    try {
+      const cfg = E.config();
+      if (!cfg.enabled || !event) return;
+      let inj;
+      try { inj = await Promise.race([E.loadInject(), new Promise((res) => { timer = setTimeout(() => res(null), 1500); })]); } finally { if (timer) clearTimeout(timer); timer = null; }
+      if (!inj || !inj.enabled) return;
+      const work = E.prepareInjection({ text: event.text, source: event.source }, { inj: inj });
+      work.catch(() => {});
+      const cap = (inj.wait || 0) + 4000;
+      const r = await Promise.race([work, new Promise((res) => { timer = setTimeout(() => res(null), cap); })]);
+      if (r && r.block && typeof r.text === 'string') event.text = r.text;
+    } catch (e) {
+      /* inject nothing */
+    } finally { if (timer) clearTimeout(timer); }
+  });
+
+  // Staleness: the analysed source message was edited or deleted.
+  // v2.9.1: a swipe / regenerate / edit / delete invalidates the job of the old content; a turn that is analysing it is
+  // stopped, and an updated reply that is the latest one is analysed again (processed marker = id + content hash).
+  async function waitIdle(ms) { const until = Date.now() + ms; for (;;) { const st = await E.loadState(); if (!E.syncBusy(st) || Date.now() > until) return; await new Promise((r) => setTimeout(r, 200)); } }
+  // v3.0.3: 'updated' fires repeatedly while a reply streams / is edited: debounce per message id (700 ms, last event wins);
+  // 'deleted' runs at once. The returned promise settles when the (debounced) work is done.
+  const updWait = {};
+  const onMsgChanged = (kind) => (event) => {
+    const id = event && (event.messageId != null ? event.messageId : (event.message && event.message.id));
+    if (id == null) return Promise.resolve();
+    if (kind !== 'updated') return onMsgChanged0(kind, id);
+    const k = String(id); const w = updWait[k] || (updWait[k] = { timer: null, res: [] });
+    if (w.timer) clearTimeout(w.timer);
+    return new Promise((resolve) => {
+      w.res.push(resolve);
+      w.timer = setTimeout(() => { delete updWait[k]; onMsgChanged0(kind, id).then(() => w.res.forEach((f) => f())); }, 700);
+    });
+  };
+  const onMsgChanged0 = async (kind, id) => {
+    try {
+      await E.markStale(id);
+      await E.onMessageChanged(id, kind);
+      if (kind !== 'updated') return;
+      await E.loadAiOpts(); const cfg = E.config();
+      if (!cfg.enabled || !cfg.autoSync) return;
+      const m = await E.getMessage(id).catch(() => null); // v3.0.22: survives opener-edit id remap
+      if (!m || m.isUser === true || m.role === 'user' || m.hidden === true) return;
+      await onMessageAdded({ message: m }, true); // v3.0.5: gate checks newest / baseline / once-per-content / retry cap
+    } catch (e) { /* ignore */ }
+  };
+  tavo.plugin.on('message:updated', onMsgChanged('updated'));
+  tavo.plugin.on('message:deleted', onMsgChanged('deleted'));
+
+  // Lorebook upkeep (v2.7.4): startup readiness race -> E.ensureLoreReady polls with backoff (~30 s) until the book
+  // exists and is attached. Re-tried on chat events, the next message and panel open. Single-flight, no stuck flags.
+  function loreKeep(sweep, seq) {
+    const opts = { sweep: !!sweep, gen: seq != null ? seq : openSeq, isStale: () => (seq != null ? seq : openSeq) !== openSeq };
+    return E.ensureLoreReady(opts).catch((e) => { try { console.warn('[physiology] lorebook sync failed', e); } catch (_) { /* ignore */ } return { ok: false, err: String((e && e.message) || e) }; });
+  }
+  tavo.plugin.on('chat:updated', () => { reqHot(); loreKeep(false); });
+  tavo.plugin.on('chat:closed', () => { openSeq++; }); // abort a running warmup loop of the old chat
+
+  const onOpened = async () => {
+    const seq = ++openSeq; reqHot();
+    try { const c0 = await tavo.chat.current(); E.noteChatOpened(c0 && c0.id); } catch (e) { E.noteChatOpened(null); }
+    // v2.9.2: migrate / clear stale update state left by older versions or dead runtimes (logged)
+    setTimeout(() => { E.sanitizeUpdateState('打开聊天').catch(() => 0); }, 1500);
+    try {
+      await afterChatReady(async () => {
+        const cfg = E.config();
+        if (!cfg.enabled) return;
+        try { await ensureBaseline(); } catch (e) { if (E.isNotReady(e)) throw e; } // v3.0.5
+        // v3.0.5c: no scan on chat open; recognition only starts when the player opens the panel
+      }, seq);
+    } catch (e) { /* runtime still warming up: ensureLoreReady keeps polling */ }
+    try { await loreKeep(true, seq); } catch (e) { /* ignore */ }
+  };
+  tavo.plugin.on('chat:opened', onOpened);
+  // v2.8.1: the entry is the ONLY runtime that creates lorebooks; it answers the panel's requests (plugin-global signal)
+  try { E.__setRole('entry'); } catch (e) { /* ignore */ }
+  let serving = false;
+  // v3.0.3: every 1.5 s for 60 s after start / chat events / a served request, otherwise every 4.5 s
+  let reqTick = 0;
+  const reqTimer = setInterval(async () => {
+    reqTick++; if (serving) return; if (Date.now() > reqHotUntil && reqTick % 3 !== 0) return;
+    serving = true; try { const r = await E.serveBookRequests(); if (r) reqHot(); } catch (e) { /* retried next tick */ } serving = false;
+  }, 1500);
+  if (reqTimer && typeof reqTimer.unref === 'function') reqTimer.unref();
+  try { tavo.plugin.on('chat:switched', onOpened); } catch (e) { /* not an event on every host */ }
+
+  tavo.plugin.onSidebarAction('open-panel', async () => {
+    try {
+      await E.mutate((st) => { st.panel.open = true; st.panel.collapsed = false; st.panel.view = 'main'; st.panel.openReq = Date.now(); });
+      // the plugin may be enabled inside an already-open chat (no chat:opened yet): pin the install baseline now,
+      // otherwise the next AI reply would become the baseline and be silently skipped by auto sync
+      try { await ensureBaseline(); } catch (e) { /* retried on the next event */ }
+      const st0 = await E.loadState();
+      if (!st0.meta.rosterConfirmed) return; // v2.7.6: the panel opens straight into 识别角色 (AI), then the confirm list
+      const r = await E.scanCharacters({ batch: true });
+      await toast('runtime.opened', { count: Object.keys(r.state.characters).length });
+    } catch (e) { await toast('runtime.error'); }
+  });
+
+  tavo.plugin.onSidebarAction('open-settings', async () => {
+    try {
+      await E.mutate((st) => { st.panel.open = true; st.panel.collapsed = false; st.panel.view = 'settings'; });
+      const st = await E.loadState();
+      if (st.meta.rosterConfirmed && !Object.keys(st.characters).length) await E.scanCharacters({ batch: true });
+      await toast('runtime.settingsOpened');
+    } catch (e) { await toast('runtime.error'); }
+  });
+
+  tavo.plugin.onSidebarAction('ai-scan', async () => {
+    try {
+      await E.mutate((st) => { st.panel.open = true; st.panel.collapsed = false; st.panel.view = 'scan'; st.panel.scanReq = Date.now(); });
+      await toast('runtime.aiScanOpened');
+    } catch (err) { await toast('runtime.error'); }
+  });
+
+  tavo.plugin.onSidebarAction('rescan', async () => {
+    try {
+      const r = await E.scanCharacters({ batch: true });
+      await toast('runtime.rescanned', { count: Object.keys(r.state.characters).length, added: r.added });
+    } catch (e) { await toast('runtime.error'); }
+  });
+
+  tavo.plugin.onLastMessageAction('refresh-last', async (ctx) => {
+    try {
+      const id = ctx && ctx.messageId;
+      if (id == null) { await toast('runtime.nomessage'); return; }
+      const r = await E.runSync(id, { force: true, manual: true });
+      const key = { busy: 'ui3.sync.toast.busy', ok: 'runtime.refreshed', duplicate: 'runtime.duplicate', nomessage: 'runtime.nomessage', hidden: 'runtime.hidden', ignored: 'runtime.ignored', disabled: 'runtime.disabled' }[r && r.status] || 'runtime.error';
+      await toast(key);
+    } catch (e) { await toast('runtime.error'); }
+  });
+})();

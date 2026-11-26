@@ -1,0 +1,13 @@
+{
+    "display_name": "角色生理档案 Character Physiology",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Taby / KeeK（原作）· TauriTavern 移植",
+    "version": "3.0.32-tt.0.1.0",
+    "homePage": "https://github.com/asukapobyu-dot/tt-shengli",
+    "auto_update": false,
+    "generate_interceptor": "charPhysiologyInterceptor"
+}

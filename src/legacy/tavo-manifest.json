@@ -1,0 +1,425 @@
+{
+  "specVersion": 2,
+  "id": "com.taby.char-physiology",
+  "name": {
+    "$t": "plugin.name"
+  },
+  "author": "Taby",
+  "version": "3.0.32",
+  "minAppVersion": "1.3.0",
+  "entry": "entry.js",
+  "description": {
+    "$t": "plugin.description"
+  },
+  "releaseNotes": {
+    "$t": "releaseNotes.3_0_32"
+  },
+  "localization": {
+    "defaultLocale": "zh-CN",
+    "resources": {
+      "zh-CN": "locales/zh-CN.json",
+      "en": "locales/en.json"
+    }
+  },
+  "cover": "cover.png",
+  "permissions": [
+    "message",
+    "variable",
+    "input",
+    "generate",
+    "file",
+    "network"
+  ],
+  "contributes": {
+    "sidebar": [
+      {
+        "id": "open-panel",
+        "label": {
+          "$t": "actions.openPanel"
+        }
+      },
+      {
+        "id": "open-settings",
+        "label": {
+          "$t": "actions.openSettings"
+        }
+      },
+      {
+        "id": "ai-scan",
+        "label": {
+          "$t": "actions.aiScan"
+        }
+      },
+      {
+        "id": "rescan",
+        "label": {
+          "$t": "actions.rescan"
+        }
+      }
+    ],
+    "lastMessageActions": [
+      {
+        "id": "refresh-last",
+        "label": {
+          "$t": "actions.refreshLast"
+        },
+        "icon": "icons/refresh.png",
+        "role": "character"
+      }
+    ],
+    "htmlFragments": [
+      {
+        "id": "physiology-panel",
+        "src": "ui/panel.html",
+        "mount": "/chat/body/end"
+      }
+    ],
+    "settings": {
+      "schema": [
+        {
+          "type": "info",
+          "text": {
+            "$t": "settings.info"
+          },
+          "icon": "info"
+        },
+        {
+          "key": "enabled",
+          "type": "switch",
+          "label": {
+            "$t": "settings.enabled.label"
+          },
+          "description": {
+            "$t": "settings.enabled.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "autoUpdate",
+          "type": "switch",
+          "label": {
+            "$t": "settings.autoUpdate.label"
+          },
+          "description": {
+            "$t": "settings.autoUpdate.desc"
+          },
+          "default": true
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "key": "cycleLength",
+          "type": "slider",
+          "label": {
+            "$t": "settings.cycleLength.label"
+          },
+          "description": {
+            "$t": "settings.cycleLength.desc"
+          },
+          "min": 21,
+          "max": 40,
+          "step": 1,
+          "default": 28
+        },
+        {
+          "key": "periodLength",
+          "type": "slider",
+          "label": {
+            "$t": "settings.periodLength.label"
+          },
+          "description": {
+            "$t": "settings.periodLength.desc"
+          },
+          "min": 3,
+          "max": 8,
+          "step": 1,
+          "default": 5
+        },
+        {
+          "key": "fertileWindowDays",
+          "type": "slider",
+          "label": {
+            "$t": "settings.fertileWindowDays.label"
+          },
+          "description": {
+            "$t": "settings.fertileWindowDays.desc"
+          },
+          "min": 2,
+          "max": 6,
+          "step": 1,
+          "default": 5
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "key": "useAiAssist",
+          "type": "switch",
+          "label": {
+            "$t": "settings.useAiAssist.label"
+          },
+          "description": {
+            "$t": "settings.useAiAssist.desc"
+          },
+          "default": false
+        },
+        {
+          "key": "aiDescribe",
+          "type": "switch",
+          "label": {
+            "$t": "settings.aiDescribe.label"
+          },
+          "description": {
+            "$t": "settings.aiDescribe.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "aiPlot",
+          "type": "switch",
+          "label": {
+            "$t": "settings.aiPlot.label"
+          },
+          "description": {
+            "$t": "settings.aiPlot.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "aiInit",
+          "type": "switch",
+          "label": {
+            "$t": "settings.aiInit.label"
+          },
+          "description": {
+            "$t": "settings.aiInit.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "aiContext",
+          "type": "slider",
+          "label": {
+            "$t": "settings.aiContext.label"
+          },
+          "description": {
+            "$t": "settings.aiContext.desc"
+          },
+          "min": 2,
+          "max": 30,
+          "step": 1,
+          "default": 8
+        },
+        {
+          "key": "aiMaxTokens",
+          "type": "slider",
+          "label": {
+            "$t": "settings.aiMaxTokens.label"
+          },
+          "description": {
+            "$t": "settings.aiMaxTokens.desc"
+          },
+          "min": 1000,
+          "max": 32000,
+          "step": 500,
+          "default": 8000
+        },
+        {
+          "key": "aiNoThink",
+          "type": "switch",
+          "label": {
+            "$t": "settings.aiNoThink.label"
+          },
+          "description": {
+            "$t": "settings.aiNoThink.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "aiBaselineTokens",
+          "type": "slider",
+          "label": {
+            "$t": "settings.aiBaselineTokens.label"
+          },
+          "description": {
+            "$t": "settings.aiBaselineTokens.desc"
+          },
+          "min": 1000,
+          "max": 32000,
+          "step": 500,
+          "default": 16000
+        },
+        {
+          "key": "aiCardChars",
+          "type": "slider",
+          "label": {
+            "$t": "settings.aiCardChars.label"
+          },
+          "description": {
+            "$t": "settings.aiCardChars.desc"
+          },
+          "min": 1000,
+          "max": 20000,
+          "step": 500,
+          "default": 6000
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "key": "customApiEnabled",
+          "type": "switch",
+          "label": {
+            "$t": "settings.customApi.label"
+          },
+          "description": {
+            "$t": "settings.customApi.desc"
+          },
+          "default": false
+        },
+        {
+          "key": "apiBaseUrl",
+          "type": "text",
+          "label": {
+            "$t": "settings.apiBaseUrl.label"
+          },
+          "description": {
+            "$t": "settings.apiBaseUrl.desc"
+          },
+          "default": "https://api.openai.com/v1"
+        },
+        {
+          "key": "apiModel",
+          "type": "text",
+          "label": {
+            "$t": "settings.apiModel.label"
+          },
+          "description": {
+            "$t": "settings.apiModel.desc"
+          },
+          "default": "gpt-4o-mini"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "key": "injectEnabled",
+          "type": "switch",
+          "label": {
+            "$t": "settings.injectEnabled.label"
+          },
+          "description": {
+            "$t": "settings.injectEnabled.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "injectMode",
+          "type": "select",
+          "label": {
+            "$t": "settings.injectMode.label"
+          },
+          "description": {
+            "$t": "settings.injectMode.desc"
+          },
+          "default": "lore",
+          "options": [
+            {
+              "value": "lore",
+              "label": {
+                "$t": "ui.inject.mode.lore"
+              }
+            },
+            {
+              "value": "prefix",
+              "label": {
+                "$t": "ui.inject.mode.prefix"
+              }
+            }
+          ]
+        },
+        {
+          "key": "injectIntimacy",
+          "type": "switch",
+          "label": {
+            "$t": "settings.injectIntimacy.label"
+          },
+          "description": {
+            "$t": "settings.injectIntimacy.desc"
+          },
+          "default": true
+        },
+        {
+          "key": "injectDetail",
+          "type": "select",
+          "label": {
+            "$t": "settings.injectDetail.label"
+          },
+          "description": {
+            "$t": "settings.injectDetail.desc"
+          },
+          "default": "standard",
+          "options": [
+            {
+              "value": "brief",
+              "label": {
+                "$t": "settings.injectDetail.brief"
+              }
+            },
+            {
+              "value": "standard",
+              "label": {
+                "$t": "settings.injectDetail.standard"
+              }
+            },
+            {
+              "value": "detailed",
+              "label": {
+                "$t": "settings.injectDetail.detailed"
+              }
+            }
+          ]
+        },
+        {
+          "key": "injectPosition",
+          "type": "select",
+          "label": {
+            "$t": "settings.injectPosition.label"
+          },
+          "description": {
+            "$t": "settings.injectPosition.desc"
+          },
+          "default": "before",
+          "options": [
+            {
+              "value": "before",
+              "label": {
+                "$t": "settings.injectPosition.before"
+              }
+            },
+            {
+              "value": "after",
+              "label": {
+                "$t": "settings.injectPosition.after"
+              }
+            }
+          ]
+        },
+        {
+          "key": "injectTemplate",
+          "type": "textarea",
+          "label": {
+            "$t": "settings.injectTemplate.label"
+          },
+          "description": {
+            "$t": "settings.injectTemplate.desc"
+          },
+          "default": {
+            "$t": "settings.injectTemplate.default"
+          }
+        }
+      ]
+    }
+  }
+}
