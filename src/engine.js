@@ -644,8 +644,7 @@ export function createEngine(tavo) {
       // 迁移：旧版因关键词/描述推断而跳过的角色（没有明确的 <18 年龄数字）→ 解锁为“未追踪”，由用户手动打开。
       // 已确认成年的直接解除跳过。放在 trackOff 读取之后，避免被覆盖；先于下面 v2.9.8 的冻结迁移。
       if (base.skippedReason === 'minor' || base.adult === false) {
-        const pa = c.profile && c.profile.age;
-        const hardAge = explicitMinorAge(pa) || explicitMinorAge(base.cardAge);
+        const hardAge = explicitMinorAge(base.cardAge); /* [tt-port:age4] */ // profile.age 可能是 AI 猜的，不作为证据
         if (base.adultConfirmed || !hardAge) {
           base.adult = true; base.skippedReason = null;
           if (!base.adultConfirmed) { base.trackOff = true; base.migratedFromMinor = true; }
@@ -1781,12 +1780,48 @@ export function createEngine(tavo) {
       if (!Number.isFinite(a) || a < 18 || a > 9999) return null;
       return { at: Number.isFinite(Number(x.at)) ? Number(x.at) : Date.now(), age: Math.round(a) };
     }
+    // 角色卡原文里明确写出的、属于她本人的年龄；只有 < 18 时返回该数字，否则返回 null。 /* [tt-port:age4] */
+    // 只认原文：AI 读出 / 猜出的年龄一律不算。卡上没写年龄（或写的是孩子、亲属、学生的年龄）= 不拦。
+    function statedMinorAge(text, name) {
+      const a = statedAge(text, name);
+      return a != null && explicitMinorAge(a) ? a : null;
+    }
+    // 角色卡原文里明确写出的、属于她本人的年龄（任何数字）；写了多个时成年优先；没写 = null
+    function statedAge(text, name) {
+      const T = String(text || ''); if (!T.trim()) return null;
+      const nm = String(name || '').trim();
+      const ages = [];
+      // a) 名字附近的“NN岁”（cardAgeFor 只接受 >=18，这里按同样的写法找 <18 的）
+      if (nm) {
+        const NUM = '(\\d{1,3}|[一二三四五六七八九十]{1,3})';
+        const re = new RegExp(nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^。\\n！？]{0,24}?(?:今年|年龄[：:]?|年纪[：:]?)?' + NUM + '\\s*(?:岁|歲|周岁)', 'g');
+        let m;
+        while ((m = re.exec(T))) {
+          const between = m[0].slice(nm.length, m[0].length - m[1].length);
+          // “周敏有个10岁的…” / “王姐照顾着一个8岁的…”：名字和数字之间出现亲属、量词、照顾/收养等 → 说的是别人
+          if (/(儿|女|丈夫|老公|孩子|母亲|父亲|妈|爸|的|哥|姐|弟|妹|学生|徒弟|弟子|个|位|名|照顾|带着|收养|领养|生了|育有)/.test(between)) continue;
+          // 数字后面紧跟亲属称呼 → 也是别人
+          const after = T.slice(m.index + m[0].length, m.index + m[0].length + 8);
+          if (/^(?:的|大的|多的)?(?:女儿|儿子|孩子|小孩|男孩|女孩|娃|宝宝|婴儿|妹妹|弟弟|侄|外甥|孙|学生|徒弟|弟子|继女|继子|养女|养子)/.test(after)) continue;
+          const n = parseNum(m[1]); if (Number.isFinite(n) && n > 0) ages.push(n);
+        }
+      }
+      // b) 她本人的句子里“带标签”的年龄（年龄：NN / age: NN），排除亲属子句；不看裸的“NN岁”
+      { const sf = selfText(T, nm);
+        const LBL = [/(?:^|[\s，,。；;、（(])(?:年龄|年纪|岁数)\s*[:：]?\s*(\d{1,3}|[零〇一二两三四五六七八九十]{1,3})/, /\bage\s*[:：]\s*(\d{1,3})/i];
+        for (const re of LBL) { const m = re.exec(sf); if (m) { const n = parseNum(m[1]); if (Number.isFinite(n) && n > 0) { ages.push(n); break; } } } }
+      if (!ages.length) return null;
+      // 同时写了成年年龄（>=18）时以成年为准，避免把别处的小数字误当她的年龄
+      const adult = ages.find((n) => n >= 18 && n <= 9999);
+      if (adult != null) return adult;
+      const n = ages.find((x) => explicitMinorAge(x));
+      return n != null ? n : null;
+    }
     // 角色当前是否被“年龄 < 18”底线拦下（已手动确认成年的永远不拦）
     function ageBlocked(ch) {
       if (!ch) return false;
       if (normAdultConfirmed(ch.adultConfirmed)) return false;
-      const pa = ch.profile && ch.profile.age;
-      return explicitMinorAge(pa) || explicitMinorAge(ch.cardAge);
+      return explicitMinorAge(ch.cardAge); /* [tt-port:age4] */ // profile.age 可能是 AI 猜的，不作为证据
     }
     function assessAdult(card) {
       const tx = cardText(card);
@@ -5272,7 +5307,7 @@ export function createEngine(tavo) {
         const ch = allowed.find((x) => String(x.name).toLowerCase() === c.name.trim().toLowerCase());
         if (!ch) return;
         // hard exclude minors from init payload
-        if (explicitMinorAge(c.age)) return; /* [tt-port:age] */ // 只看年龄数字；AI 的 adult=false 判断不再采纳
+        if (explicitMinorAge(c.age)) c.age = null; /* [tt-port:age4] */ // AI 猜的 <18 年龄不算（parseInit 只剩 baselineCall 一个旧调用方，且已无人调用）
         const sex = emptySex();
         if (c.sex && typeof c.sex === 'object') SEX_KEYS.forEach((k) => { sex[k] = clamp(int(c.sex[k], 0), 0, 999999); });
         const off = (Array.isArray(c.offspring) ? c.offspring : []).slice(0, 20).map((o) => ({
@@ -5476,7 +5511,10 @@ export function createEngine(tavo) {
       const cardAge = member ? assessAdult(member.card).age : null;
       if (cardAge != null && Number(cardAge) >= 18) return null;
       if (explicitMinorAge(cardAge)) return 'card';
-      if (ai && explicitMinorAge(ai.age)) return 'ai';
+      if (ai && explicitMinorAge(ai.age)) { /* [tt-port:age4] */
+        const src = (member ? String(member.text || '') : '') + '\n' + (ctx && Array.isArray(ctx.lore) ? ctx.lore.map((l) => String((l && l.content) || '')).join('\n') : '');
+        if (statedMinorAge(src, name) != null) return 'ai';
+      }
       return null;
     }
     function minorCheckOrigUnused(name, ctx, member, ai) {
@@ -7076,7 +7114,11 @@ export function createEngine(tavo) {
         FERT_PARAM_RULE, STRICT_RULE, GENERIC_HINT, SAFE_RULES, C].join('\n');
       lastBaselinePrompt = ra + '\n' + (kk.items.some((x) => x.src === 'user') ? 'User kinks: ' + kk.items.filter((x) => x.src === 'user').map((x) => x.name).join(', ') : '');
       const A = canonDossier(await stepCall('1/4', ra, api, cfg, name));
-      if (A && !normAdultConfirmed(ch0.adultConfirmed) && explicitMinorAge(A.age)) return { minor: true }; /* [tt-port:age] */
+      if (A && !normAdultConfirmed(ch0.adultConfirmed) && explicitMinorAge(A.age)) { /* [tt-port:age4] */
+        if (statedMinorAge(matText, ch0.name) != null) return { minor: true };
+        reloadDiag.push('age: AI 给出 ' + A.age + ' 岁，但角色卡没有写明她未满 18 岁，已忽略（按未写明处理）');
+        A.age = null;
+      }
       if (A && normAdultConfirmed(ch0.adultConfirmed) && !(Number(A.age) >= 18)) A.age = normAdultConfirmed(ch0.adultConfirmed).age; // 确认过的年龄不被 AI 改写
       if (!A) return null;
       const acc = collectCycle(A, {});
@@ -7254,7 +7296,7 @@ export function createEngine(tavo) {
           if (P.cycle && typeof P.cycle === 'object') { const acc2 = collectCycle(P, Object.assign({}, acc)); CYCLE_REQ.forEach((k) => { if (acc2[k] && acc2[k].v !== 'unknown') combined.cycle[k] = { v: acc2[k].v, why: acc2[k].why || (combined.cycle[k] && combined.cycle[k].why) || '' }; }); }
         }
         if (Array.isArray(D.fixes)) D.fixes.slice(0, 10).forEach((x) => fixes.push(str(x, 120)));
-        if (P && (P.childlike === true || (P.minor === true && !(Number(combined.age) >= 18)))) return { minor: true };
+        if (P && (P.childlike === true || P.minor === true)) reloadDiag.push('review: AI 标记 ' + (P.childlike === true ? 'childlike' : 'minor') + '，移植版只认角色卡写明的年龄，已忽略'); /* [tt-port:age4] */
       }
       // v2.9.8 realistic pre-meeting history: plausibility caps / floors for human characters (non-human exempt)
       { // dedup BEFORE the plausibility floors: the AI's own pre-story numbers must not already contain the recorded story acts
@@ -7266,7 +7308,12 @@ export function createEngine(tavo) {
       }
       { const cap = capSexHistory(combined, members.map((m) => m.text).join(' ')); if (cap.changed.length) { cap.changed.forEach((k) => { sexEst[k] = combined.sex[k] > 0; }); combined.sexWhy = str((combined.sexWhy ? combined.sexWhy + '；' : '') + cap.note, 160); plog('初始化', { type: '经历校准', status: 'info', text: name + '：' + cap.note }); } }
       { const ca = cardAgeFor(matText, ch0.name); if (ca) { if (combined.age !== ca.age) reloadDiag.push('age: 角色卡写明 ' + ca.age + ' 岁，覆盖 AI 的 ' + combined.age); combined.age = ca.age; A.quotes = A.quotes && typeof A.quotes === 'object' ? A.quotes : {}; if (!A.quotes.age || !evidenceOk(String(A.quotes.age), matAll)) A.quotes.age = ca.quote; } }
-      if (!normAdultConfirmed(ch0.adultConfirmed) && explicitMinorAge(combined.age)) return { minor: true }; /* [tt-port:age] */
+      { const sa = statedAge(matText, ch0.name); if (sa != null && sa >= 18 && combined.age !== sa) { reloadDiag.push('age: 角色卡写明 ' + sa + ' 岁，覆盖 AI 的 ' + combined.age); combined.age = sa; } } /* [tt-port:age4] */
+      if (!normAdultConfirmed(ch0.adultConfirmed) && explicitMinorAge(combined.age)) { /* [tt-port:age4] */
+        if (statedMinorAge(matText, ch0.name) != null) return { minor: true };
+        reloadDiag.push('age: 合并后的年龄 ' + combined.age + ' 岁不是角色卡写明的，已忽略（按未写明处理）');
+        combined.age = null;
+      }
       if (normAdultConfirmed(ch0.adultConfirmed) && !(Number(combined.age) >= 18)) combined.age = normAdultConfirmed(ch0.adultConfirmed).age;
       // hard code-level guards after review
       const age = combined.age;
@@ -9529,7 +9576,7 @@ export function createEngine(tavo) {
     function applyProfilePatch(base, P, mode) {
       if (!P || typeof P !== 'object') return false;
       P = canonDossier(P);
-      if (P.age != null && Number(P.age) > 0 && Number(P.age) < 18) return 'minor';
+      if (P.age != null && Number(P.age) > 0 && Number(P.age) < 18) P = Object.assign({}, P, { age: null }); /* [tt-port:age4] */
       let n = 0;
       PROF_TEXT.concat(DOSSIER_TEXT.filter((k) => k !== 'social' && PROF_TEXT.indexOf(k) < 0)).forEach((k) => { if (typeof P[k] === 'string' && P[k].trim()) { base[k] = P[k].trim(); n++; } });
       if (P.social != null) { const sl = normSocial(P.social); if (sl.length) { base.social = sl; n++; } }
@@ -9581,7 +9628,13 @@ export function createEngine(tavo) {
         try { out = await callModel(profilePrompt(ch0, base, mode, ctx, cfg), api, { step: '档案生成', maxTokens: cfg.aiBaselineTokens || 16000, timeout: 240000 }); }
         catch (e) { detail = ((e && e.code) || 'error') + (e && e.detail ? ' · ' + e.detail : ''); }
         const j = out != null ? stepObj(out, ch0.name) : null;
-        if (j && !normAdultConfirmed(ch0 && ch0.adultConfirmed) && explicitMinorAge(j.age != null ? j.age : base.age)) return { ok: false, code: 'minor' }; /* [tt-port:age2] */
+        if (j && !normAdultConfirmed(ch0 && ch0.adultConfirmed) && explicitMinorAge(j.age != null ? j.age : base.age)) { /* [tt-port:age4] */
+          const cardTx = (((ctx && ctx.members) || []).filter((m) => String(m.id) === String(ch0.id) || String(m.name || '').toLowerCase() === String(ch0.name || '').toLowerCase()).map((m) => String(m.text || '')).join('\n')) || String(ch0.cardSeg || ch0.manualDesc || '');
+          if (statedMinorAge(cardTx, ch0.name) != null) return { ok: false, code: 'minor' };
+          if (j.age != null && explicitMinorAge(j.age)) j.age = null;
+          if (j.profile && typeof j.profile === 'object' && explicitMinorAge(j.profile.age)) j.profile.age = null;
+          if (explicitMinorAge(base.age)) base.age = null;
+        }
         if (j) {
           const P2 = j.profile && typeof j.profile === 'object' ? j.profile : j;
           const r = applyProfilePatch(base, P2, mode);
@@ -11209,7 +11262,7 @@ export function createEngine(tavo) {
       return out;
     }
     // One step for one character, using exactly the functions behind the manual buttons.
-    const CODE_ZH = { nocard: '没有读到角色卡文字，已停止生成（不会凭空编造）', parse: 'AI 回复无法解析（可能被拒绝或格式错误）', error: '请求失败', empty: '角色不在追踪列表', unavailable: '没有可用的 AI（未配置 API）', disabled: 'AI 初始化已关闭', http: 'HTTP 错误', timeout: '请求超时', network: '网络错误', badresponse: 'API 返回内容异常', refused: '疑似拒绝回复' };
+    const CODE_ZH = { minor: '角色卡写明她未满 18 岁，不建档（卡上写明已满 18 岁的可在面板里“确认成年”）', nocard: '没有读到角色卡文字，已停止生成（不会凭空编造）', parse: 'AI 回复无法解析（可能被拒绝或格式错误）', error: '请求失败', empty: '角色不在追踪列表', unavailable: '没有可用的 AI（未配置 API）', disabled: 'AI 初始化已关闭', http: 'HTTP 错误', timeout: '请求超时', network: '网络错误', badresponse: 'API 返回内容异常', refused: '疑似拒绝回复' };
     function initReason(r, what) {
       if (!r) return what + '：无返回结果';
       const d = String(r.detail || r.err || '').trim();
@@ -11554,7 +11607,7 @@ export function createEngine(tavo) {
       ensureLoreReady, loreDiagnose, bookIdOf, chatBookIds, safeBookName, validEntries, loreAttachedNow,
       cardCharacters, familyFromText, isSectionTitle, proposePolish, confirmPolish, markPolishPending, setFrom, fromOf, polishLock, classifyLoreEntry, splitNamedBlocks, isPlaceOrCollective, gateCandidate, heuristicScan, parseScan,
       birthFloor, syncFamilyChildren, repairHist, recountHist, childRel, isChildRel,
-      addTracked: addTracked, confirmAdult: confirmAdult, revokeAdult: revokeAdult, ageBlocked: ageBlocked, explicitMinorAge: explicitMinorAge, normAdultConfirmed: normAdultConfirmed, memberFor: memberFor, regenPrompt: regenPrompt, samePerson: samePerson, trackPromptHeld: trackPromptHeld, queueAskInit: queueAskInit, queueRecognized: queueRecognized, seedCardFacts: seedCardFacts, knownName: knownName, clearAsk: clearAsk, detectNewCharacters: detectNewCharacters, dismissSuggest: dismissSuggest, suggestPrompt: suggestPrompt, charKey: charKey, nameHash: nameHash, cardIdOf: cardIdOf, migrateEnsembleKeys: migrateEnsembleKeys, wireCardAliases: wireCardAliases, resolveId: resolveId, primaryCharIds: primaryCharIds, bySpeaker: bySpeaker, candidateKey: candidateKey, matchExisting: matchExisting, newChar: newChar, sessionActs: sessionActs, decayBody: decayBody, bodyFromAi: bodyFromAi, setBodyNow: setBodyNow, markOp: markOp, setLastSex: setLastSex, endSession: endSession, bodyNowText: bodyNowText, marksText: marksText, lastSexText: lastSexText, bodyBaseline: bodyBaseline, normMarks: normMarks, MARK_TYPES: MARK_TYPES, MARK_ZH: MARK_ZH, SEMEN: SEMEN, liveCounts: liveCounts,
+      addTracked: addTracked, confirmAdult: confirmAdult, revokeAdult: revokeAdult, ageBlocked: ageBlocked, explicitMinorAge: explicitMinorAge, statedMinorAge: statedMinorAge, statedAge: statedAge, normAdultConfirmed: normAdultConfirmed, memberFor: memberFor, regenPrompt: regenPrompt, samePerson: samePerson, trackPromptHeld: trackPromptHeld, queueAskInit: queueAskInit, queueRecognized: queueRecognized, seedCardFacts: seedCardFacts, knownName: knownName, clearAsk: clearAsk, detectNewCharacters: detectNewCharacters, dismissSuggest: dismissSuggest, suggestPrompt: suggestPrompt, charKey: charKey, nameHash: nameHash, cardIdOf: cardIdOf, migrateEnsembleKeys: migrateEnsembleKeys, wireCardAliases: wireCardAliases, resolveId: resolveId, primaryCharIds: primaryCharIds, bySpeaker: bySpeaker, candidateKey: candidateKey, matchExisting: matchExisting, newChar: newChar, sessionActs: sessionActs, decayBody: decayBody, bodyFromAi: bodyFromAi, setBodyNow: setBodyNow, markOp: markOp, setLastSex: setLastSex, endSession: endSession, bodyNowText: bodyNowText, marksText: marksText, lastSexText: lastSexText, bodyBaseline: bodyBaseline, normMarks: normMarks, MARK_TYPES: MARK_TYPES, MARK_ZH: MARK_ZH, SEMEN: SEMEN, liveCounts: liveCounts,
       normFertParams: normFertParams, fpFromTiers: fpFromTiers, FERT_PARAM_RULE: FERT_PARAM_RULE, __setFpSource: (x) => { fpSource = String(x || ''); }, fertParamsOf: fertParamsOf, setFertParams: setFertParams, setFertParamsAi: setFertParamsAi, fertParamsText: fertParamsText, fpRows: fpRows,
       mergeActX: mergeActX, __setRollRng: (f) => { rollRng = typeof f === 'function' ? f : null; }, rollBias: rollBias, conceptionRoll: conceptionRoll, hardPct: hardPct, floorPct: floorPct, carryPct: carryPct, currentAiPct: currentAiPct, aiPctOf: aiPctOf, normPctMemo: normPctMemo,
       chanceBasis: chanceBasis, pctParts: pctParts, applyFertMods: applyFertMods, normFertMod: normFertMod, techMerge: techMerge, consolidateTech: consolidateTech, textSim: textSim, dropKinks: dropKinks, kinksByDays: kinksByDays, kinkPromote: kinkPromote, kinksLine: kinksLine, fadeByDays: fadeByDays, clearItems: clearItems, upsertAnom: upsertAnom, completeJson: completeJson, lastJsonObject: lastJsonObject,

@@ -1838,7 +1838,7 @@ export function mountPanel(PHYS, tavo) {
       if (r.fixes && r.fixes.length) h += '<p class="phys-muted">' + esc(t('ui.reload.fixes', { list: r.fixes.join('；') })) + '</p>';
       h += '<p class="phys-muted">' + esc(t('ui.rebase.sinceNote', { pc: r.since.pc, bc: r.since.bc, kids: r.since.kids })) + '</p>';
       h += '<div class="phys-row"><button type="button" class="phys-btn" data-act="rebase-confirm">' + esc(t('ui.rebase.confirm')) + '</button><button type="button" class="phys-btn ghost" data-act="rebase-cancel">' + esc(t('ui.rebase.cancel')) + '</button></div></div>';
-    } else if (mine && rebase.res && !rebase.res.ok) h += '<p class="phys-status err">' + esc(t('ui.rebase.fail', { code: rebase.res.code || 'error', detail: rebase.res.detail || '' })) + '</p>';
+    } else if (mine && rebase.res && !rebase.res.ok) h += '<p class="phys-status err">' + esc(rebase.res.code === 'minor' ? t('ttAge.initMinor') : t('ui.rebase.fail', { code: rebase.res.code || 'error', detail: rebase.res.detail || '' })) + '</p>'; /* [tt-port:minor-msg] */
     return h;
   }
   function renderKinksEdit(c) {
@@ -2654,7 +2654,7 @@ export function mountPanel(PHYS, tavo) {
         if (r && r.ok) { const k1 = suKey(chKey(c), 'base'); styleUi[k1] = { busy: true }; render(); let sy = null; try { sy = await E.initStyles(chKey(c)); } catch (e3) { sy = { ok: false, err: String((e3 && e3.message) || e3) }; } styleUi[k1] = sy && sy.ok ? null : { err: (sy && sy.err) || '未知原因' }; }
         regenBusy = false; regenScope = '';
         await refreshFromStore(true);
-        if (r && r.ok) await toast('ui.ai.reinitDone'); else if (r && r.detail) await toast('ui.ai.reinitFailDetail', { code: r.code || 'error', detail: r.detail }); else await toast('ui.ai.reinitFail');
+        if (r && r.ok) await toast('ui.ai.reinitDone'); else if (r && r.code === 'minor') await toast('ttAge.initMinor'); /* [tt-port:minor-msg] */ else if (r && r.detail) await toast('ui.ai.reinitFailDetail', { code: r.code || 'error', detail: r.detail }); else await toast('ui.ai.reinitFail');
         break;
       }
       case 'rebase-start': {

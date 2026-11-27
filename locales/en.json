@@ -1748,5 +1748,6 @@
  "ttSet.more": "More settings (custom API key, AI generation switches, injection template, character roster) are on the panel's Settings page.",
  "ttSet.openPanelSettings": "Open panel settings",
  "ttSet.age": "Age: a character is only excluded when the card explicitly states an age under 18; no stated age counts as adult. If a card clearly says 18+ but the character was blocked, use \"Confirm adult\" in the panel.",
- "ttSet.credit": "Ported from the Tavo plugin com.taby.char-physiology (original authors: Taby / KeeK)."
+ "ttSet.credit": "Ported from the Tavo plugin com.taby.char-physiology (original authors: Taby / KeeK).",
+ "ttAge.initMinor": "Not created: her character card states she is under 18. If the card actually states she is 18 or older, open her page, choose \"Confirm adult\", enter the age from the card and initialize again."
 }

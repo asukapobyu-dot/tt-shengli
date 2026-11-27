@@ -62,7 +62,10 @@ ok(E.judgeAdult('', 15).adult === false, 'judgeAdult 年龄 15 → 拦下');
 const ctx = { members: [], cardTexts: [] };
 ok(E.minorCheck('沈玉卿', ctx, { card: card('沈玉卿', '高中老师，面对高中生'), text: '' }, { adult: false, childlike: true }) === null, 'AI 的 childlike/adult=false 不再采纳');
 ok(E.minorCheck('乙', ctx, { card: card('乙', '年龄：16'), text: '' }, null) === 'card', '卡面年龄 16 → card');
-ok(E.minorCheck('戊', ctx, null, { age: 15 }) === 'ai', 'AI 读出的年龄 15 → ai');
+// 修 bug（初始化误判 minor）：AI 读出 / 猜出的年龄必须有原文佐证才拦
+ok(E.minorCheck('戊', ctx, null, { age: 15 }) === null, 'AI 给出 15 岁但卡上 / 世界书没写 → 不拦（AI 猜的不算）');
+ok(E.minorCheck('戊', { members: [], cardTexts: [], lore: [{ title: '戊', content: '戊，年龄：15，村里的孩子。' }] }, null, { age: 15 }) === 'ai', 'AI 给出 15 岁且世界书写明 → 拦');
+ok(E.minorCheck('戊', ctx, { card: card('戊', '性格开朗'), text: '戊今年15岁，喜欢跑步。' }, { age: 15 }) === 'ai', 'AI 给出 15 岁且卡上写明 → 拦');
 ok(E.minorCheck('己', ctx, { card: card('己', '年龄：20'), text: '' }, { age: 15 }) === null, '卡面明确 >=18 时以卡面为准');
 
 // ===== 4. 档案年龄不再被强制改成 18 =====

@@ -1748,5 +1748,6 @@
  "ttSet.more": "自定义 API（密钥）、AI 生成开关、注入模板、角色名单等更多设置，在面板的「设置」页里。",
  "ttSet.openPanelSettings": "打开面板设置",
  "ttSet.age": "年龄：只有角色卡里明确写出的年龄小于 18 岁才不建档；没写年龄的按成年处理。卡上写明已满 18 岁却被拦下的角色，可在面板里点「确认成年」。",
- "ttSet.credit": "移植自 Tavo 插件 com.taby.char-physiology（原作者 Taby / KeeK）。"
+ "ttSet.credit": "移植自 Tavo 插件 com.taby.char-physiology（原作者 Taby / KeeK）。",
+ "ttAge.initMinor": "没有建档：角色卡里写明她未满 18 岁。如果卡上其实写明她已满 18 岁，请在她的页面点“确认成年”，填入卡上的年龄后再初始化。"
 }
