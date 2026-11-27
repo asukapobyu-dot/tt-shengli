@@ -18,6 +18,7 @@
 
 export const PROMPT_KEY = 'char_physiology';
 /** extension_prompt_types / extension_prompt_roles（TT scripts/extension-prompts.js） */
+const IN_PROMPT = 0;
 const IN_CHAT = 1;
 const ROLE_SYSTEM = 0;
 
@@ -347,9 +348,12 @@ export async function startRuntime({ engine: E, tavo, getContext, timers, log })
             const block = r && typeof r.block === 'string' ? r.block : '';
             const c = getContext();
             if (!c || typeof c.setExtensionPrompt !== 'function') return;
-            // 原插件“放在你的消息之前 / 之后”→ 聊天内深度 1 / 0
-            const depth = inj.position === 'after' ? 0 : 1;
-            c.setExtensionPrompt(PROMPT_KEY, block, IN_CHAT, depth, false, ROLE_SYSTEM);
+            // 位置映射：
+            //   system（默认）= 系统提示区末尾（IN_PROMPT）——离最后一条消息最远，模型不会把档案当成“接着写的内容”
+            //   before        = 聊天内深度 1（你最新一条消息之前）
+            //   after         = 聊天内深度 0（紧跟你的消息之后，模型会更看重，但也更容易顺着档案写）
+            if (inj.position === 'system') c.setExtensionPrompt(PROMPT_KEY, block, IN_PROMPT, 0, false, ROLE_SYSTEM);
+            else c.setExtensionPrompt(PROMPT_KEY, block, IN_CHAT, inj.position === 'after' ? 0 : 1, false, ROLE_SYSTEM);
             lastBlock = block;
         } catch (e) {
             clearPrompt(); lastBlock = '';

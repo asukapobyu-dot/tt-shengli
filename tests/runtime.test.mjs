@@ -212,15 +212,23 @@ ok(add && add.ok !== false, '手动追踪林晚');
 await rt.interceptor(host.chat, 8192, () => {}, 'normal');
 let p = host.prompts[PROMPT_KEY];
 ok(p && p.value.includes('【身体档案') && p.value.includes('林晚'), '有追踪角色：注入档案块，实际 ' + JSON.stringify(p && p.value.slice(0, 60)));
-ok(p.position === 1 && p.depth === 1 && p.role === 0, '默认“放在你的消息之前”→ 聊天内深度 1、system');
+ok(p.position === 0 && p.depth === 0 && p.role === 0, '默认放进系统提示区（IN_PROMPT，脱离聊天末尾）、system，实际 ' + JSON.stringify({ position: p.position, depth: p.depth, role: p.role }));
+ok(p.value.includes('不要在回复里复述') && p.value.includes('回应玩家最新一条消息'), '注入块末尾明确要求：不复述档案、正常回应用户');
+ok(!p.value.includes('列出全部追踪角色'), '注入块里不再有“列出全部追踪角色”这种祈使句（会被模型当成任务）');
 ok(!host.chat.some((m) => String(m.mes).includes('【身体档案')), '不改动聊天记录');
 
-// 位置改为“之后”
+// 位置改为“你的消息之前”→ 聊天内深度 1
 const inj = await E.loadInject();
+await E.saveInject(Object.assign({}, inj, { position: 'before' }));
+await rt.interceptor(host.chat, 8192, () => {}, 'normal');
+p = host.prompts[PROMPT_KEY];
+ok(p.position === 1 && p.depth === 1, '“我的消息之前”→ 聊天内深度 1');
+
+// 位置改为“之后”
 await E.saveInject(Object.assign({}, inj, { position: 'after' }));
 await rt.interceptor(host.chat, 8192, () => {}, 'normal');
 p = host.prompts[PROMPT_KEY];
-ok(p.depth === 0, '“放在你的消息之后”→ 深度 0');
+ok(p.position === 1 && p.depth === 0, '“我的消息之后”→ 聊天内深度 0');
 
 // 世界书模式（原插件默认）→ 照样走扩展提示词
 await E.saveInject(Object.assign({}, inj, { mode: 'lore', position: 'before' }));

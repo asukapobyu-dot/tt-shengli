@@ -65,7 +65,8 @@ export function mountSettings({ engine: E, tavo, getContext, i18n, onOpenPanelSe
             check('useAiAssist', 'settings.useAiAssist.label', 'settings.useAiAssist.desc') +
             head('ttSet.group.inject') +
             check('injEnabled', 'settings.injectEnabled.label', 'settings.injectEnabled.desc') +
-            select('injPosition', 'settings.injectPosition.label', 'settings.injectPosition.desc', [['before', 'settings.injectPosition.before'], ['after', 'settings.injectPosition.after']]) +
+            // [tt-port:inject2] 新增“系统提示区”：档案是背景资料，放在系统提示里最不容易被模型当成续写对象
+            select('injPosition', 'settings.injectPosition.label', 'settings.injectPosition.desc', [['system', 'settings.injectPosition.system'], ['before', 'settings.injectPosition.before'], ['after', 'settings.injectPosition.after']]) +
             select('injDetail', 'settings.injectDetail.label', 'settings.injectDetail.desc', [['brief', 'settings.injectDetail.brief'], ['standard', 'settings.injectDetail.standard'], ['detailed', 'settings.injectDetail.detailed']]) +
             check('injIntimacy', 'settings.injectIntimacy.label', 'settings.injectIntimacy.desc') +
             '<small class="charphys_set_desc">' + esc(t('ttSet.inject.modeNote')) + '</small>' +
@@ -115,7 +116,7 @@ export function mountSettings({ engine: E, tavo, getContext, i18n, onOpenPanelSe
             profileId: typeof bag.profileId === 'string' ? bag.profileId : '',
             useAiAssist: cfg.useAiAssist === true,
             injEnabled: inj.enabled !== false,
-            injPosition: inj.position === 'after' ? 'after' : 'before',
+            injPosition: inj.position === 'after' ? 'after' : (inj.position === 'before' ? 'before' : 'system'), // [tt-port:inject2]
             injDetail: ['brief', 'standard', 'detailed'].includes(inj.detail) ? inj.detail : 'standard',
             injIntimacy: inj.intimacy !== false,
             cycleLength: Number(cfg.cycleLength) || 28,

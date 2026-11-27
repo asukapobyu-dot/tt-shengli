@@ -174,12 +174,12 @@
  "settings.injectDetail.standard": "标准",
  "settings.injectDetail.detailed": "详细",
  "settings.injectPosition.label": "注入位置",
- "settings.injectPosition.desc": "之前：状态块放在你最新一条消息的前面，模型先读到它，把它当作背景设定——适合绝大多数情况（推荐）。之后：状态块紧跟在你的消息后面，模型会更看重它，生理状态对表现的影响更明显。两者都不会改动聊天记录里能看到的内容。",
- "settings.injectPosition.before": "之前",
- "settings.injectPosition.after": "之后",
+ "settings.injectPosition.desc": "系统提示：档案放进系统提示区末尾，离你最新一条消息最远——模型最不容易把档案当成“要接着写的内容”（推荐）。之前：档案排在你最新一条消息前面。之后：档案紧跟你的消息，模型会更看重它，但也更容易顺着档案往下写、不理会你的话。三者都不会改动聊天记录里能看到的内容。",
+ "settings.injectPosition.before": "我的消息之前",
+ "settings.injectPosition.after": "我的消息之后",
  "settings.injectTemplate.label": "注入前缀说明",
  "settings.injectTemplate.desc": "写在身体档案开头的中性说明，只陈述这是角色的身体与生理资料。默认内容一般无需修改；面板「设置 → 注入」里保存的值优先（旧版本的默认说明会被自动替换）。",
- "settings.injectTemplate.default": "【身体档案】本聊天成年角色的身体与生理资料（事实记录）。这些资料不改变角色的性格设定与剧情。\n【角色简述】列出全部追踪角色；附有详细档案的角色为本轮在场或刚刚出现的角色。",
+ "settings.injectTemplate.default": "【身体档案·背景资料】以下是本聊天成年角色的身体与生理事实，只用于让你在描写时保持前后一致。它不是任务，不改变角色的性格与剧情。\n【身体档案·结构】先是一行式的角色概况，再给在场或刚刚出现的角色附上详细档案；这些只是供你查阅的记录。",
  "inject.sep": "；",
  "inject.cycle": "{phase}，周期第 {day}/{length} 天",
  "inject.fertile.yes": "可孕：是",
@@ -1752,5 +1752,6 @@
  "ttAge.initMinor": "没有建档：角色卡里写明她未满 18 岁。如果卡上其实写明她已满 18 岁，请在她的页面点“确认成年”，填入卡上的年龄后再初始化。",
  "ttLore.noApi": "世界书接口不可用是正常现象：移植版不写世界书，注入始终走“消息前缀”（读取角色的世界书是正常的）。把注入方式改成“消息前缀”即可消除这条提示。",
  "ttLore.modeLore": "世界书（移植版不支持写入）",
- "ttLore.modePrefix": "消息前缀（推荐）"
+ "ttLore.modePrefix": "消息前缀（推荐）",
+ "settings.injectPosition.system": "系统提示（推荐）"
 }

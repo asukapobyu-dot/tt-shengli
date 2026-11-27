@@ -243,7 +243,7 @@ const change = async (k, v) => {
 ok(S.querySelector('.inline-drawer-header b').textContent === '角色生理档案', '设置区：酒馆抽屉结构，标题来自语言包');
 await until(() => F('enabled').checked === true, 2000, '设置区读入当前值');
 ok(F('autoSync').checked === true && selVal(F('channel')) === 'main', '缺省：启用、自动同步、用酒馆当前 API');
-ok(selVal(F('injPosition')) === 'before' && selVal(F('injDetail')) === 'standard', '缺省：注入在消息之前、标准详细度，实际 ' + JSON.stringify([selVal(F('injPosition')), selVal(F('injDetail')), await E.loadInject()]));
+ok(selVal(F('injPosition')) === 'system' && selVal(F('injDetail')) === 'standard', '缺省：注入在系统提示区、标准详细度，实际 ' + JSON.stringify([selVal(F('injPosition')), selVal(F('injDetail')), await E.loadInject()]));
 ok(F('cycleLength').value === '28' && S.querySelector('[data-charphys-out="cycleLength"]').textContent === '28', '缺省周期 28 天');
 ok(S.querySelector('[data-charphys-profile-row]').style.display === 'none', '用酒馆当前 API 时不显示连接配置');
 ok(S.textContent.includes('明确写出的年龄小于 18 岁') && S.textContent.includes('确认成年'), '设置区写明年龄规则和“确认成年”');

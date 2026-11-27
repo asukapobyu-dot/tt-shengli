@@ -28,7 +28,8 @@ export const CONFIG_DEFAULTS = Object.freeze({
     useAiAssist: false, aiDescribe: true, aiPlot: true, aiInit: true,
     aiContext: 8, aiMaxTokens: 8000, aiNoThink: true, aiBaselineTokens: 16000, aiCardChars: 6000,
     customApiEnabled: false, apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-4o-mini',
-    injectEnabled: true, injectMode: 'lore', injectIntimacy: true, injectDetail: 'standard', injectPosition: 'before',
+    // [tt-port:inject2] 移植版不写世界书 → 走消息前缀；档案默认放系统提示区，避免被模型当成续写内容
+    injectEnabled: true, injectMode: 'prefix', injectIntimacy: true, injectDetail: 'standard', injectPosition: 'system',
 });
 
 export function unsupported(name) {

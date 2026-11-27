@@ -390,8 +390,14 @@
           "description": {
             "$t": "settings.injectPosition.desc"
           },
-          "default": "before",
+          "default": "system",
           "options": [
+            {
+              "value": "system",
+              "label": {
+                "$t": "settings.injectPosition.system"
+              }
+            },
             {
               "value": "before",
               "label": {

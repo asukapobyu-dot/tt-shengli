@@ -174,12 +174,12 @@
  "settings.injectDetail.standard": "Standard",
  "settings.injectDetail.detailed": "Detailed",
  "settings.injectPosition.label": "Injection position",
- "settings.injectPosition.desc": "Before: the block goes before your latest message, so the model reads it first as background. This suits most cases and is recommended. After: the block goes right after your message, where the model weighs it more, so the effects show more strongly. Neither changes what you see in the chat log.",
- "settings.injectPosition.before": "Before",
- "settings.injectPosition.after": "After",
+ "settings.injectPosition.desc": "System prompt: the block goes at the end of the system prompt area, furthest from your latest message, so the model is least likely to treat it as something to continue writing (recommended). Before: the block goes right before your latest message. After: right after it, the model weights it more but is also more likely to keep writing the block instead of answering you. None of them changes what is visible in the chat log.",
+ "settings.injectPosition.before": "Before my message",
+ "settings.injectPosition.after": "After my message",
  "settings.injectTemplate.label": "Injection preamble",
  "settings.injectTemplate.desc": "Written at the top of the state block to tell the model how to use it. The default is ready to use, and covers how the cycle shapes {{char}}'s mood and psychology. The value saved in the panel (Settings → Injection) takes priority.",
- "settings.injectTemplate.default": "【身体档案】本聊天成年角色的身体与生理资料（事实记录）。这些资料不改变角色的性格设定与剧情。\n【角色简述】列出全部追踪角色；附有详细档案的角色为本轮在场或刚刚出现的角色。",
+ "settings.injectTemplate.default": "【Physiology · background】The facts below describe the adult characters of this chat. They only help you stay consistent while writing. They are not a task and do not change the characters' personalities or the story.\n【Physiology · structure】First a one-line summary per character, then a detailed record for those present or just introduced; these are reference notes only.",
  "inject.sep": "; ",
  "inject.cycle": "{phase}, cycle day {day}/{length}",
  "inject.fertile.yes": "fertile: yes",
@@ -1752,5 +1752,6 @@
  "ttAge.initMinor": "Not created: her character card states she is under 18. If the card actually states she is 18 or older, open her page, choose \"Confirm adult\", enter the age from the card and initialize again.",
  "ttLore.noApi": "No lorebook write API is expected here: the port never writes lorebooks and always injects through the message prefix (reading your lorebooks works normally). Switch the injection mode to \"message prefix\" to hide this.",
  "ttLore.modeLore": "Lorebook (writing is not supported here)",
- "ttLore.modePrefix": "Message prefix (recommended)"
+ "ttLore.modePrefix": "Message prefix (recommended)",
+ "settings.injectPosition.system": "System prompt (recommended)"
 }

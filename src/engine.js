@@ -116,7 +116,7 @@ export function createEngine(tavo) {
         injectEnabled: c.injectEnabled !== false,
         injectIntimacy: c.injectIntimacy !== false,
         injectDetail: ['brief', 'standard', 'detailed'].indexOf(c.injectDetail) >= 0 ? c.injectDetail : 'standard',
-        injectPosition: c.injectPosition === 'after' ? 'after' : 'before',
+        injectPosition: c.injectPosition === 'after' ? 'after' : (c.injectPosition === 'before' ? 'before' : 'system'), /* [tt-port:inject2] */
         injectTemplate: typeof c.injectTemplate === 'string' ? str(c.injectTemplate, 6000) : null,
         injectMode: c.injectMode === 'lore' ? 'lore' : 'prefix', /* [tt-port:lore2] 移植版不写世界书，默认走消息前缀 */
         injectDepth: clamp(int(c.injectDepth, 2), 0, 20),
@@ -4605,7 +4605,7 @@ export function createEngine(tavo) {
         enabled: typeof raw.enabled === 'boolean' ? raw.enabled : cfg.injectEnabled,
         intimacy: typeof raw.intimacy === 'boolean' ? raw.intimacy : cfg.injectIntimacy,
         detail: ['brief', 'standard', 'detailed'].indexOf(raw.detail) >= 0 ? raw.detail : cfg.injectDetail,
-        position: raw.position === 'after' || raw.position === 'before' ? raw.position : cfg.injectPosition,
+        position: ['system', 'before', 'after'].indexOf(raw.position) >= 0 ? raw.position : cfg.injectPosition, /* [tt-port:inject2] */
         template: typeof raw.template === 'string' ? str(raw.template, 6000) : cfg.injectTemplate, // null => localized default
         mode: raw.mode === 'prefix' || raw.mode === 'lore' ? raw.mode : cfg.injectMode,
         depth: raw.depth != null && Number.isFinite(Number(raw.depth)) ? clamp(int(raw.depth, 2), 0, 20) : cfg.injectDepth,
@@ -10502,12 +10502,12 @@ export function createEngine(tavo) {
     function guideText(st, inj) {
       // v2.9.3: a saved copy of an OLD default (guidance text) is not a user template: the neutral header replaces it
       const tp = inj && typeof inj.template === 'string' ? inj.template.trim() : '';
-      const oldDefault = /^不要在回复中提及本区块|physiology_state|供你参考|请严格遵守/.test(tp);
+      const oldDefault = /^不要在回复中提及本区块|physiology_state|供你参考|请严格遵守|列出全部追踪角色|【身体档案】本聊天成年角色/.test(tp); /* [tt-port:inject2] */
       if (tp && !oldDefault && tp !== String(t('settings.injectTemplate.default')).trim()) return tp;
       // v2.9.3: neutral facts header only (no writing guidance)
-      const G = [
-        '【身体档案】本聊天成年角色的身体与生理资料（事实记录）。这些资料不改变角色的性格设定与剧情。',
-        '【角色简述】列出全部追踪角色；附有详细档案的角色为本轮在场或刚刚出现的角色。',
+      const G = [ /* [tt-port:inject2] */ // 只陈述“这是什么”，不下指令：祈使句会被模型当成这一轮的任务
+        '【身体档案·背景资料】以下是本聊天成年角色的身体与生理事实，只用于让你在描写时保持前后一致。它不是任务，不改变角色的性格与剧情。',
+        '【身体档案·结构】先是一行式的角色概况，再给在场或刚刚出现的角色附上详细档案；这些只是供你查阅的记录。',
       ];
       return G.join('\n');
     }
@@ -11517,6 +11517,8 @@ export function createEngine(tavo) {
       const pend = initPendingIds(st);
       parts.push('【身体档案｜角色简述】\n' + trackedList(st).map((c) => briefLine(c, cfg, iso, pendOf(pend, c))).join('\n'));
       sc.full.forEach((x) => parts.push(fullBlock(x.c, cfg, iso, inj, mode) + (pendOf(pend, x.c) ? '\n· 档案初始化尚未完成，以上部分为暂定数据。' : '')));
+      // 修 bug：块尾必须交代“别复述、正常回话”，否则模型会顺着档案往下写，不理会玩家最新一条消息
+      parts.push('（以上均为背景资料：不要在回复里复述、列举或输出本区块，也不要把它当成任务；请照常推进剧情，并回应玩家最新一条消息。）'); /* [tt-port:inject2] */
       parts.push('【身体档案·结束】');
       return parts.join('\n');
     }

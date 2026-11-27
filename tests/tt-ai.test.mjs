@@ -201,7 +201,7 @@ await rejects(tavo.file.save('x.jpg', 'not-a-data-url'), /dataUrl/, '非 dataUrl
 
 // ================= D. 插件设置 + 真实引擎 =================
 const cfg0 = tavo.plugin.config.all();
-ok(!(cfg0 instanceof Promise) && cfg0.cycleLength === 28 && cfg0.injectMode === 'lore', 'config.all() 同步返回缺省值（块 1 占位版是异步的，引擎读不到）');
+ok(!(cfg0 instanceof Promise) && cfg0.cycleLength === 28 && cfg0.injectMode === 'prefix', 'config.all() 同步返回缺省值（块 1 占位版是异步的，引擎读不到）；移植版默认消息前缀注入');
 eq(Object.keys(CONFIG_DEFAULTS).length, 22, '缺省值覆盖原插件 23 项设置中的 22 项');
 ok(!('injectTemplate' in cfg0), 'injectTemplate 不设缺省值（留空 = 引擎用本地化默认模板）');
 tavo.plugin.config.set('cycleLength', 30);
