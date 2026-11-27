@@ -289,11 +289,37 @@ export function createDataApi({ getContext, log }) {
     };
 
     // ---------------- 世界书（只读）----------------
-    /** 当前聊天可见的世界书名：聊天绑定的 + 角色主世界书 + 角色附加世界书（去重，保持顺序） */
+    // 酒馆里“全局勾选”的世界书存放在核心模块 world-info.js 的 selected_world_info 里，
+    // getContext() 没有暴露这一项。所以这里尝试动态 import 核心模块（同源、同一模块实例）；
+    // 取不到就安静降级，只读聊天 / 角色卡绑定的世界书。
+    let wiMod = null;
+    let wiWarm = null;
+    const globalBooks = []; // 全局勾选的世界书（缓存）
+    async function warmWorldInfo() {
+        if (wiWarm) return wiWarm;
+        wiWarm = (async () => {
+            try { wiMod = await import('../../../../world-info.js'); } catch (e) { wiMod = null; }
+            try {
+                const sel = wiMod && wiMod.selected_world_info;
+                (Array.isArray(sel) ? sel : []).forEach((n) => {
+                    const s = str(n).trim();
+                    if (s && globalBooks.indexOf(s) < 0) globalBooks.push(s);
+                });
+            } catch (e) { /* 没有就算了 */ }
+            return globalBooks;
+        })();
+        return wiWarm;
+    }
+    void warmWorldInfo(); // 模块加载时就先问一次，扫描时通常已经就绪
+
+    /** 当前聊天可见的世界书名：全局勾选 + 用户设定 + 聊天绑定 + 角色主世界书 + 角色附加世界书（去重，保持顺序） */
     function chatBookNames() {
         const c = ctx();
         const out = [];
         const add = (n) => { const s = str(n).trim(); if (s && out.indexOf(s) < 0) out.push(s); };
+        globalBooks.forEach(add);
+        const pu = c && c.powerUserSettings;
+        if (pu && pu.persona_description_lorebook) add(pu.persona_description_lorebook);
         const md = c && c.chatMetadata;
         if (md && md.world_info) add(md.world_info);
         const ws = c && c.worldInfoSettings; // 可选（新版 TT 才有）：附加世界书 charLore
@@ -352,7 +378,8 @@ export function createDataApi({ getContext, log }) {
         };
     }
     const chat = {
-        async current() { return chatNow(); },
+        /** 造当前聊天快照前先确认“全局勾选的世界书”已经问过（第一次可能是异步的） */
+        async current() { await warmWorldInfo(); return chatNow(); },
         /** 只认当前聊天；其他聊天返回 undefined（“不确定”），引擎因此不会误删别的聊天的数据 */
         async get(id) {
             const cur = chatNow();

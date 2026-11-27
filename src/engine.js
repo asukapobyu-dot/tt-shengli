@@ -118,7 +118,7 @@ export function createEngine(tavo) {
         injectDetail: ['brief', 'standard', 'detailed'].indexOf(c.injectDetail) >= 0 ? c.injectDetail : 'standard',
         injectPosition: c.injectPosition === 'after' ? 'after' : 'before',
         injectTemplate: typeof c.injectTemplate === 'string' ? str(c.injectTemplate, 6000) : null,
-        injectMode: c.injectMode === 'prefix' ? 'prefix' : 'lore',
+        injectMode: c.injectMode === 'lore' ? 'lore' : 'prefix', /* [tt-port:lore2] 移植版不写世界书，默认走消息前缀 */
         injectDepth: clamp(int(c.injectDepth, 2), 0, 20),
         injectSticky: clamp(int(c.injectSticky, 3), 0, 50),
         injectWait: clamp(int(c.injectWait, 3000), 0, 15000),
@@ -5364,7 +5364,7 @@ export function createEngine(tavo) {
       const members = (ctx && ctx.members) || [];
       // ensure each target has a member stub for the prompt
       list.forEach((c) => {
-        if (!members.some((m) => String(m.id) === String(c.id) || String(m.id) === cardIdOf(c) || m.name.toLowerCase() === String(c.name).toLowerCase())) {
+        if (!memberOfChar(members, c).length) { /* [tt-port:lore2] */
           members.push({ id: c.id, name: c.name, text: '', card: null, stub: true });
         }
       });
@@ -5372,7 +5372,7 @@ export function createEngine(tavo) {
       const map = {}; const errs = []; const minors = [];
       // one call per character keeps output small (avoids finish_reason=length truncation)
       for (const c of list) {
-        const mem = members.filter((m) => String(c.id) === String(m.id) || String(m.id) === cardIdOf(c) || c.name.toLowerCase() === m.name.toLowerCase());
+        const mem = memberOfChar(members, c); /* [tt-port:lore2] */
         let res = null;
         try { res = await reloadPipeline(c, cfg, api, { members: mem.filter((m) => !m.stub), allMembers: members.filter((m) => !m.stub), cardTexts: (ctx && ctx.cardTexts) || [], lore: lore, msgs: msgs, story: storyFactsText(st0, c) }, opts.onStep); }
         catch (e) { errs.push(c.name + ': ' + ((e && e.code) || 'error') + (e && e.detail ? ' · ' + e.detail : '') + ' · ' + reloadDiag.join(' | ')); continue; }
@@ -7022,6 +7022,64 @@ export function createEngine(tavo) {
     }
     // v3.0.5an: ONE card-source resolver for every baseline step — same sources the recognition step reads
     // (chat members, 场景卡 / ensemble card texts, cards found by id or by name), never just the bare name.
+    // 世界书里“属于她本人”的条目：标题 / 关键词就是她的名字，或正文一开头就是在写她。 /* [tt-port:lore2] */
+    // 移植版修 bug：世界书读不到时，引擎会退回到“别人的角色卡里提到过她”，把别人的整张卡当成她的资料，
+    // 于是所有角色都被建成同一个人。现在优先用她自己的世界书条目。
+    function loreOfPerson(ctx, name, n) {
+      const nm = String(name || '').trim(); if (!nm) return null;
+      const key = nameKey(nm); const want = nm.toLowerCase();
+      const out = []; const titles = [];
+      ((ctx && ctx.lore) || []).forEach((l) => {
+        if (!l) return;
+        const title = String(l.title || '').trim(); const content = String(l.content || '');
+        if (content.replace(/\s+/g, '').length < 12) return;
+        if (isPlaceOrCollective(title) || isSectionTitle(title)) return; // 地点 / 集体 / 词条是设定，不是“她自己”
+        const keys = Array.isArray(l.keys) ? l.keys.map((k) => nameKey(k)) : [];
+        const own = nameKey(title) === key || keys.indexOf(key) >= 0
+          || (content.slice(0, 40).toLowerCase().indexOf(want) >= 0 && isSubjectOf(nm, title, content));
+        if (!own) return;
+        out.push('[' + (title || nm) + '] ' + content);
+        if (titles.indexOf(title || nm) < 0) titles.push(title || nm);
+      });
+      if (!out.length) return null;
+      return { text: out.slice(0, n || 3).join('\n').slice(0, 3000), titles: titles.slice(0, n || 3) };
+    }
+    // 只取角色卡里“关于她本人”的句子：整张卡是别的角色的档案，套过来会让多人变成同一个人。
+    // 只有“真的在描述她”的句子才算（名字在句首 / 句子里有档案字段 / 名字后面紧跟年龄身份）；否则返回空。
+    function excerptFor(text, name, cap) {
+      const T = String(text || ''); const nm = String(name || '').trim();
+      if (!T || !nm) return '';
+      const key = nm.toLowerCase(); const good = [];
+      const LBL = /(年龄|年纪|性别|身高|三围|生日|外貌|外表|身材|性格|身份|职业|种族|简介|设定|名字|姓名|age|gender|height|personality|appearance|occupation)/i;
+      T.split(/[。！？!?\n]+/).forEach((s) => {
+        s = s.trim(); if (!s) return;
+        let got = false;
+        // 逐个短句看：只有“她自己在被描述”的短句才算（避免“她性格温柔，常和苏青来往”这种把别人写进去的句子）
+        s.split(/[，,；;、]/).forEach((cl) => {
+          const c2 = cl.trim(); if (!c2) return;
+          const i = c2.toLowerCase().indexOf(key); if (i < 0) return;
+          const head = i <= 2;
+          const label = LBL.test(c2);
+          const after = c2.slice(i + nm.length, i + nm.length + 8);
+          const tied = /^[^\u4e00-\u9fa5a-z]{0,4}(?:是|今年|年龄|为|一名|是个|：|:)/.test(after) || /^[^\u4e00-\u9fa5a-z]{0,4}\d{1,3}\s*(?:岁|歲)/.test(after);
+          if (head || label || tied) got = true;
+        });
+        if (got) good.push(s);
+      });
+      const out = good.join('。').trim();
+      if (!out || out.replace(/\s+/g, '').length < Math.max(10, nm.length + 6)) return '';
+      return out.length > (cap || 1400) ? out.slice(0, cap || 1400) : out;
+    }
+    // 移植版：按卡号认定“同一个角色的成员”只对同卡多角色有效（id 形如 <卡号>~xxx）。
+    // 只是“卡里提到过她”的角色，cardId 也会指向别人的卡，按卡号硬匹配会把别人的卡当成她的资料。
+    function memberOfChar(members, c) {
+      if (!c) return [];
+      const cid = cardIdOf(c);
+      const own = cid != null && String(c.id).indexOf(String(cid) + '~') === 0;
+      return (members || []).filter((m) => m && (String(c.id) === String(m.id)
+        || String(c.name || '').toLowerCase() === String(m.name || '').toLowerCase()
+        || (own && String(m.id) === String(cid))));
+    }
     async function resolveMaterial(ch0, ctx) {
       const nm = String(ch0.name || ''), low = nm.toLowerCase(); const tried = [];
       const has = (t) => !!t && String(t).toLowerCase().indexOf(low) >= 0;
@@ -7035,8 +7093,16 @@ export function createEngine(tavo) {
       tried.push(own.length ? '聊天角色卡（内容过短）' : '聊天角色卡（未匹配）');
       if (ct && real(ct.text)) return out([{ id: ch0.id, name: nm, text: own.length ? own[0].text : '', shared: ct.text, ensemble: true }], '场景卡「' + (ct.name || ct.id) + '」');
       tried.push('场景卡');
+      // 移植版：她自己的世界书条目，比“别人的卡里提到过她”可靠得多 /* [tt-port:lore2] */
+      { const lo = loreOfPerson(ctx, nm, 3);
+        if (lo) { tried.push('她的世界书条目'); return out([{ id: ch0.id, name: nm, text: lo.text }], '世界书「' + lo.titles.join('」「') + '」'); } }
+      // 移植版：别人卡里只是“提到过她”时，只取关于她的句子，绝不整卡照抄（否则所有角色都变成同一个人）
       const mm = ALL.find((m) => real(m.text) && (has(m.text) || String(m.id) === cid) && (m.card ? cardText(m.card).all : m.text));
-      if (mm) return out([{ id: ch0.id, name: nm, text: mm.card ? cardText(mm.card).all : mm.text, ensemble: true }], '同聊天的角色卡「' + (mm.name || mm.id) + '」');
+      if (mm) { const full = String(mm.card ? cardText(mm.card).all : mm.text || '');
+        const ex = excerptFor(full, nm, 1400); /* [tt-port:lore2] */
+        if (ex) return out([{ id: ch0.id, name: nm, text: '（以下只是角色卡「' + (mm.name || mm.id) + '」中关于' + nm + '的部分；卡里的其他人物都不是她）\n' + ex }], '同聊天角色卡「' + (mm.name || mm.id) + '」中关于她的片段');
+        tried.push('角色卡「' + (mm.name || mm.id) + '」里只是提到她的名字（没有可用描述）');
+      }
       tried.push('同聊天其他角色卡');
       const fetchCard = async (x) => { const n = Number(x); return safe(() => tavo.character.get(Number.isFinite(n) ? n : x), null); };
       if (cid && !/^npc-/.test(cid)) { const cd = await fetchCard(cid); const tx = cd ? cardText(cd).all : ''; if (real(tx)) return out([{ id: ch0.id, name: nm, text: tx, card: cd }], '按卡号读取 #' + cid); tried.push('按卡号 #' + cid); }
@@ -11607,7 +11673,7 @@ export function createEngine(tavo) {
       ensureLoreReady, loreDiagnose, bookIdOf, chatBookIds, safeBookName, validEntries, loreAttachedNow,
       cardCharacters, familyFromText, isSectionTitle, proposePolish, confirmPolish, markPolishPending, setFrom, fromOf, polishLock, classifyLoreEntry, splitNamedBlocks, isPlaceOrCollective, gateCandidate, heuristicScan, parseScan,
       birthFloor, syncFamilyChildren, repairHist, recountHist, childRel, isChildRel,
-      addTracked: addTracked, confirmAdult: confirmAdult, revokeAdult: revokeAdult, ageBlocked: ageBlocked, explicitMinorAge: explicitMinorAge, statedMinorAge: statedMinorAge, statedAge: statedAge, normAdultConfirmed: normAdultConfirmed, memberFor: memberFor, regenPrompt: regenPrompt, samePerson: samePerson, trackPromptHeld: trackPromptHeld, queueAskInit: queueAskInit, queueRecognized: queueRecognized, seedCardFacts: seedCardFacts, knownName: knownName, clearAsk: clearAsk, detectNewCharacters: detectNewCharacters, dismissSuggest: dismissSuggest, suggestPrompt: suggestPrompt, charKey: charKey, nameHash: nameHash, cardIdOf: cardIdOf, migrateEnsembleKeys: migrateEnsembleKeys, wireCardAliases: wireCardAliases, resolveId: resolveId, primaryCharIds: primaryCharIds, bySpeaker: bySpeaker, candidateKey: candidateKey, matchExisting: matchExisting, newChar: newChar, sessionActs: sessionActs, decayBody: decayBody, bodyFromAi: bodyFromAi, setBodyNow: setBodyNow, markOp: markOp, setLastSex: setLastSex, endSession: endSession, bodyNowText: bodyNowText, marksText: marksText, lastSexText: lastSexText, bodyBaseline: bodyBaseline, normMarks: normMarks, MARK_TYPES: MARK_TYPES, MARK_ZH: MARK_ZH, SEMEN: SEMEN, liveCounts: liveCounts,
+      addTracked: addTracked, confirmAdult: confirmAdult, revokeAdult: revokeAdult, ageBlocked: ageBlocked, explicitMinorAge: explicitMinorAge, statedMinorAge: statedMinorAge, statedAge: statedAge, resolveMaterial: resolveMaterial, loreOfPerson: loreOfPerson, excerptFor: excerptFor, memberOfChar: memberOfChar, /* [tt-port:lore2] */ normAdultConfirmed: normAdultConfirmed, memberFor: memberFor, regenPrompt: regenPrompt, samePerson: samePerson, trackPromptHeld: trackPromptHeld, queueAskInit: queueAskInit, queueRecognized: queueRecognized, seedCardFacts: seedCardFacts, knownName: knownName, clearAsk: clearAsk, detectNewCharacters: detectNewCharacters, dismissSuggest: dismissSuggest, suggestPrompt: suggestPrompt, charKey: charKey, nameHash: nameHash, cardIdOf: cardIdOf, migrateEnsembleKeys: migrateEnsembleKeys, wireCardAliases: wireCardAliases, resolveId: resolveId, primaryCharIds: primaryCharIds, bySpeaker: bySpeaker, candidateKey: candidateKey, matchExisting: matchExisting, newChar: newChar, sessionActs: sessionActs, decayBody: decayBody, bodyFromAi: bodyFromAi, setBodyNow: setBodyNow, markOp: markOp, setLastSex: setLastSex, endSession: endSession, bodyNowText: bodyNowText, marksText: marksText, lastSexText: lastSexText, bodyBaseline: bodyBaseline, normMarks: normMarks, MARK_TYPES: MARK_TYPES, MARK_ZH: MARK_ZH, SEMEN: SEMEN, liveCounts: liveCounts,
       normFertParams: normFertParams, fpFromTiers: fpFromTiers, FERT_PARAM_RULE: FERT_PARAM_RULE, __setFpSource: (x) => { fpSource = String(x || ''); }, fertParamsOf: fertParamsOf, setFertParams: setFertParams, setFertParamsAi: setFertParamsAi, fertParamsText: fertParamsText, fpRows: fpRows,
       mergeActX: mergeActX, __setRollRng: (f) => { rollRng = typeof f === 'function' ? f : null; }, rollBias: rollBias, conceptionRoll: conceptionRoll, hardPct: hardPct, floorPct: floorPct, carryPct: carryPct, currentAiPct: currentAiPct, aiPctOf: aiPctOf, normPctMemo: normPctMemo,
       chanceBasis: chanceBasis, pctParts: pctParts, applyFertMods: applyFertMods, normFertMod: normFertMod, techMerge: techMerge, consolidateTech: consolidateTech, textSim: textSim, dropKinks: dropKinks, kinksByDays: kinksByDays, kinkPromote: kinkPromote, kinksLine: kinksLine, fadeByDays: fadeByDays, clearItems: clearItems, upsertAnom: upsertAnom, completeJson: completeJson, lastJsonObject: lastJsonObject,

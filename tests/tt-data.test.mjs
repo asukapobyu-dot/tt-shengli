@@ -258,3 +258,19 @@ ok(ap && ap.name === '阿明', 'addPersona 读到用户设定：' + JSON.stringi
 }
 
 console.log('tt-data OK · %d 项断言通过', pass);
+
+// ---- A9 全局勾选的世界书 / 用户设定世界书 ----
+// 酒馆里全局勾选的世界书存放在核心模块（world-info.js 的 selected_world_info），getContext() 没有暴露；
+// 适配层用动态 import 读它，读不到就降级。这里用注入假模块的方式验证拼接顺序。
+{
+    const dataMod = await imp('src/tt-data.js');
+    ok(typeof dataMod.createDataApi === 'function', 'createDataApi 可用');
+    // 用户设定世界书
+    host.powerUserSettings.persona_description_lorebook = '阿明设定'; // ctx 持有同一个对象，就地改
+    openChat('linwan');
+    host.chatMetadata = {};
+    const cur0 = await tavo.chat.current();
+    ok(cur0.lorebooks.map((b) => b.id).indexOf('阿明设定') >= 0, '用户设定里的世界书会被读到（实际 ' + cur0.lorebooks.map((b) => b.id).join('、') + '）');
+    delete host.powerUserSettings.persona_description_lorebook;
+}
+

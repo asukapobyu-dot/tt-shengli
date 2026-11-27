@@ -1749,5 +1749,8 @@
  "ttSet.openPanelSettings": "Open panel settings",
  "ttSet.age": "Age: a character is only excluded when the card explicitly states an age under 18; no stated age counts as adult. If a card clearly says 18+ but the character was blocked, use \"Confirm adult\" in the panel.",
  "ttSet.credit": "Ported from the Tavo plugin com.taby.char-physiology (original authors: Taby / KeeK).",
- "ttAge.initMinor": "Not created: her character card states she is under 18. If the card actually states she is 18 or older, open her page, choose \"Confirm adult\", enter the age from the card and initialize again."
+ "ttAge.initMinor": "Not created: her character card states she is under 18. If the card actually states she is 18 or older, open her page, choose \"Confirm adult\", enter the age from the card and initialize again.",
+ "ttLore.noApi": "No lorebook write API is expected here: the port never writes lorebooks and always injects through the message prefix (reading your lorebooks works normally). Switch the injection mode to \"message prefix\" to hide this.",
+ "ttLore.modeLore": "Lorebook (writing is not supported here)",
+ "ttLore.modePrefix": "Message prefix (recommended)"
 }

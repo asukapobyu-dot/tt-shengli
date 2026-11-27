@@ -548,6 +548,7 @@ export function mountPanel(PHYS, tavo) {
     if (l.ok) stat = '<p class="phys-status ok">' + esc(t('ui9.diag.ok', { id: l.bookId != null ? l.bookId : '—', name: l.name || '—' })) + '</p>';
     else if (st.meta && st.meta.autoRecog && st.meta.autoRecog.busy && Date.now() - st.meta.autoRecog.busy < 180000) stat = '<p class="phys-muted">' + esc(t('ui10.recog.busy')) + '</p>';
     else if (l.pending) stat = '<p class="phys-muted">' + esc(t('ui9.lore.pending', { n: l.tries || 1 })) + '</p>';
+    else if (l.err === 'no_lorebook_api') stat = '<p class="phys-muted">' + esc(t('ttLore.noApi')) + '</p>'; /* [tt-port:lore-msg] */
     else if (l.err) stat = '<p class="phys-status err">' + esc(t('ui9.diag.last', { err: l.err })) + '</p>';
     else stat = '<p class="phys-muted">' + esc(t('ui6.lore.idle')) + '</p>';
     let out = '';
@@ -571,6 +572,7 @@ export function mountPanel(PHYS, tavo) {
     if (st.meta && st.meta.autoRecog && st.meta.autoRecog.busy && Date.now() - st.meta.autoRecog.busy < 180000) return '<p class="phys-muted">' + esc(t('ui10.recog.busy')) + '</p>';
     if (!l.ok && l.pending) return '<p class="phys-muted">' + esc(t('ui9.lore.pending', { n: l.tries || 1 })) + '</p>';
     if (l.ok) return '<p class="phys-status ok">' + esc(t('ui6.lore.ok', { name: l.name || '—', strategy: t('ui7.inj.strategy.' + (l.strategy === 'direct' ? 'direct' : 'vars')) })) + '</p>' + (l.strategy !== 'direct' ? '<p class="phys-muted">' + esc(t('ui7.inj.getvarNote')) + '</p>' : '');
+    if (l.err === 'no_lorebook_api') return '<p class="phys-muted">' + esc(t('ttLore.noApi')) + '</p>'; /* [tt-port:lore-msg] */
     if (l.err) return '<p class="phys-status err">' + esc(t('ui6.lore.err', { err: l.err })) + '</p>';
     return '<p class="phys-muted">' + esc(t('ui6.lore.idle')) + '</p>';
   }
@@ -2054,10 +2056,10 @@ export function mountPanel(PHYS, tavo) {
     // injection (v2.7: simple basic view + collapsed 高级)
     let ib2 = '';
     if (injDraft) {
-      const seg = (name, cur, vals) => '<div class="phys-seg" role="group">' + vals.map((v) => '<button type="button" class="phys-segb' + (cur === v ? ' on' : '') + '" data-act="inj-' + name + '" data-v="' + v + '" aria-pressed="' + (cur === v ? 'true' : 'false') + '">' + esc(t('ui7.inj.' + name + '.' + v)) + '</button>').join('') + '</div>';
+      const seg = (name, cur, vals, labels) => '<div class="phys-seg" role="group">' + vals.map((v) => '<button type="button" class="phys-segb' + (cur === v ? ' on' : '') + '" data-act="inj-' + name + '" data-v="' + v + '" aria-pressed="' + (cur === v ? 'true' : 'false') + '">' + esc((labels && labels[v]) || t('ui7.inj.' + name + '.' + v)) + '</button>').join('') + '</div>';
       const num = (k, min, max) => '<label class="phys-field">' + esc(t('ui6.' + k)) + '<span class="phys-muted phys-sub2">' + esc(t('ui6.' + k + 'Hint')) + '</span><input type="number" inputmode="numeric" min="' + min + '" max="' + max + '" data-inj="' + k + '" value="' + esc(String(injDraft[k])) + '"></label>';
       ib2 = '<div class="inj-basic"><label class="phys-check inj-sw"><input type="checkbox" data-inj="enabled"' + (injDraft.enabled ? ' checked' : '') + '><span>' + esc(t('ui7.inj.enable')) + '</span></label>' +
-        '<div class="phys-field">' + esc(t('ui.inject.mode')) + seg('mode', injDraft.mode, ['lore', 'prefix']) + '</div>' +
+        '<div class="phys-field">' + esc(t('ui.inject.mode')) + seg('mode', injDraft.mode, ['prefix', 'lore'], { lore: t('ttLore.modeLore'), prefix: t('ttLore.modePrefix') }) + '</div>' + /* [tt-port:lore-msg] */
         loreStatus() +
         '<div class="phys-row"><button type="button" class="phys-btn" data-act="inj-preview2"' + (injDraft.enabled ? '' : ' disabled') + '>' + esc(t('ui6.previewBtn')) + '</button></div>' + renderInjPreview() + '</div>';
       let adv = (injDraft.mode === 'lore' ? num('depth', 0, 20) : '') + num('sticky', 0, 50) + num('wait', 0, 15000);
