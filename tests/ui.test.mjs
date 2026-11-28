@@ -296,6 +296,39 @@ S.querySelector('[data-charphys-act="open-panel-settings"]').dispatchEvent(new w
 await until(() => g.sessionStorage.getItem('phys.page') === 'settings', 3000, '面板设置页');
 ok(true, '“打开面板设置”：面板切到设置页');
 
+// ================= Z. 暂停追踪按钮 =================
+{
+    // 打开面板（收起状态 -> 展开）
+    await E.mutate((s0) => { s0.panel.open = true; s0.panel.collapsed = false; s0.meta.paused = false; s0.panel.view = 'main'; return null; });
+    await until(() => D.querySelector('#phys-root [data-act="track-pause"]'), 3000, '暂停按钮出现');
+    const b0 = D.querySelector('#phys-root [data-act="track-pause"]');
+    ok(b0 && b0.getAttribute('aria-pressed') === 'false', '默认未暂停：按钮 aria-pressed=false');
+    ok(b0.querySelector('svg'), '暂停按钮用面板自带的线性图标（和标题栏其他图标一致）');
+    ok(!D.querySelector('#phys-root .phys-pausestrip'), '未暂停时不显示暂停提示条');
+
+    // 点一下：进入暂停
+    b0.dispatchEvent(new window.Event('click', { bubbles: true }));
+    await until(async () => (await E.loadState()).meta.paused === true, 3000, '点击后进入暂停');
+    ok(true, '点击暂停按钮 → 存档 meta.paused=true');
+    await until(() => D.querySelector('#phys-root .phys-pausestrip'), 2000, '暂停提示条出现');
+    const strip = D.querySelector('#phys-root .phys-pausestrip');
+    ok(/追踪已暂停/.test(strip.textContent), '提示条说明暂停中只记录日期，实际 ' + JSON.stringify(strip.textContent.slice(0, 40)));
+    ok(D.querySelector('#phys-root [data-act="track-pause"]').getAttribute('aria-pressed') === 'true', '暂停后按钮 aria-pressed=true（可无障碍读出状态）');
+
+    // 再点一下：恢复
+    D.querySelector('#phys-root [data-act="track-pause"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await until(async () => (await E.loadState()).meta.paused === false, 3000, '再次点击恢复');
+    ok(true, '再次点击 → meta.paused=false');
+    await until(() => !D.querySelector('#phys-root .phys-pausestrip'), 2000, '暂停提示条消失');
+
+    // 暂停时注入为空（面板预览也走同一个引擎接口）
+    await E.setPaused(true);
+    const inj = Object.assign(await E.loadInject(), { enabled: true, mode: 'prefix' });
+    const r = await E.prepareInjection({ text: '随便聊聊。', source: 'send' }, { inj });
+    ok(r.path === 'paused' && r.block === '', '暂停时注入为空（不污染上下文）');
+    await E.setPaused(false);
+}
+
 app.ui.dispose();
 ok(!D.getElementById('char_physiology_settings'), 'dispose：设置区移除');
 ok(!D.getElementById('phys-root'), 'dispose：面板移除');

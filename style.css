@@ -1383,3 +1383,8 @@
 .charphys_settings .charphys_set_warn { color: var(--warning, #e8a33d); opacity: 1; }
 .charphys_settings .charphys_set_credit { margin-top: 10px; opacity: .55; }
 .charphys_settings input[type="range"] { width: 100%; }
+
+/* [tt-port:pause] 暂停追踪状态条：复用 phys-row / phys-status 的配色，只补一点间距与对齐 */
+.phys-pausestrip { padding: 8px 12px 0; align-items: center; gap: 8px; }
+.phys-pausestrip .phys-status { flex: 1; min-width: 0; margin: 0; }
+.phys-pausestrip .phys-btn { flex: 0 0 auto; }

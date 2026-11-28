@@ -1753,5 +1753,13 @@
  "ttLore.noApi": "No lorebook write API is expected here: the port never writes lorebooks and always injects through the message prefix (reading your lorebooks works normally). Switch the injection mode to \"message prefix\" to hide this.",
  "ttLore.modeLore": "Lorebook (writing is not supported here)",
  "ttLore.modePrefix": "Message prefix (recommended)",
- "settings.injectPosition.system": "System prompt (recommended)"
+ "settings.injectPosition.system": "System prompt (recommended)",
+ "uiPause.pause": "Pause tracking",
+ "uiPause.resume": "Resume tracking",
+ "uiPause.strip": "Tracking is paused: no analysis and no injection (saves tokens and keeps the context clean). Only the story date is updated when a message states it. Current date {d}.",
+ "uiPause.toastOn": "Paused: daily chat is no longer analyzed or injected; only date changes are recorded.",
+ "uiPause.toastOff": "Tracking resumed.",
+ "uiPause.fail": "Could not toggle pause; please try again.",
+ "uiPause.launcher": "Tracking paused",
+ "uiPause.noInject": "Tracking is paused: nothing is injected this turn. Below is what would be injected after resuming."
 }

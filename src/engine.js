@@ -433,7 +433,7 @@ export function createEngine(tavo) {
         version: 2,
         characters: {},
         panel: { v: 2, x: null, y: null, lx: null, ly: null, collapsed: false, open: false, view: 'main', theme: 'dungeon' },
-        meta: { processed: [], ignored: [], lastScan: 0, rosterConfirmed: false },
+        meta: { processed: [], ignored: [], lastScan: 0, rosterConfirmed: false, paused: false }, /* [tt-port:pause] */
         history: [],
         story: { date: null, auto: true },
         log: [],
@@ -1074,6 +1074,9 @@ export function createEngine(tavo) {
       if (Array.isArray(m.legacyFloors)) st.meta.legacyFloors = m.legacyFloors.map(String).slice(-200);
       if (Array.isArray(m.scenarioCards)) st.meta.scenarioCards = m.scenarioCards.map(String).slice(0, 20);
       if (m.ensembleCards && typeof m.ensembleCards === 'object') st.meta.ensembleCards = m.ensembleCards;
+      st.meta.paused = m.paused === true; /* [tt-port:pause] */
+      if (Number(m.pausedAt) > 0) st.meta.pausedAt = Number(m.pausedAt);
+      if (m.pausedSeen && typeof m.pausedSeen === 'object' && m.pausedSeen.k) st.meta.pausedSeen = { k: str(m.pausedSeen.k, 80), ts: int(m.pausedSeen.ts, 0) };
       st.meta.rosterConfirmed = typeof m.rosterConfirmed === 'boolean' ? m.rosterConfirmed : Object.keys(raw.characters || {}).length > 0; // legacy chats with characters count as confirmed
       if (m.autoRecog && typeof m.autoRecog === 'object') st.meta.autoRecog = { chat: str(m.autoRecog.chat, 40), tries: clamp(int(m.autoRecog.tries, 0), 0, 99), done: m.autoRecog.done === true, busy: int(m.autoRecog.busy, 0), err: str(m.autoRecog.err, 200), applied: int(m.autoRecog.applied, 0), ts: int(m.autoRecog.ts, 0), focus: str(m.autoRecog.focus, 10), aiErr: m.autoRecog.aiErr && typeof m.autoRecog.aiErr === 'object' ? { kind: str(m.autoRecog.aiErr.kind, 20), label: str(m.autoRecog.aiErr.label, 80), hint: str(m.autoRecog.aiErr.hint, 200), step: str(m.autoRecog.aiErr.step, 40) } : null, rough: Array.isArray(m.autoRecog.rough) ? m.autoRecog.rough.filter((c) => c && c.name).slice(0, 60).map((c) => ({ key: str(c.key || c.name, 80), name: str(c.name, 40), source: str(c.source, 10), gender: str(c.gender, 10), local: 'rough' })) : [] };
       st.history = normalizeHistory(raw.history);
@@ -11535,6 +11538,93 @@ export function createEngine(tavo) {
       if (!orig) return block;
       return position === 'after' ? orig + '\n\n' + block : block + '\n\n' + orig;
     }
+    // ---------------- 暂停追踪 ----------------
+    // 暂停后：不分析、不注入（省 token、不污染上下文），只在消息里出现明确日期线索时本地推进剧情日期。 /* [tt-port:pause] */
+    function isPausedState(st) { return !!(st && st.meta && st.meta.paused === true); }
+    async function setPaused(on) {
+      const val = on === true;
+      await mutate((st) => {
+        st.meta = st.meta && typeof st.meta === 'object' ? st.meta : {};
+        st.meta.paused = val;
+        if (val) st.meta.pausedAt = Date.now(); else delete st.meta.pausedAt;
+        return null;
+      });
+      return { ok: true, paused: val };
+    }
+    // 从一条消息里读出“日期往前走了多少”或“日期被明确写成哪天”。只认清楚的线索，认不出就返回 null。
+    const DATE_REL = [
+      { re: /(?:大后天)/, d: 3 }, { re: /(?:后天)/, d: 2 },
+      { re: /(?:明天|次日|第二天|翌日|隔天|隔日)/, d: 1 },
+      { re: /([一二两三四五六七八九十\d]{1,3})\s*天(?:以)?后/, unit: 'd' },
+      { re: /([一二两三四五六七八九十\d]{1,3})\s*个?\s*(?:周|星期|礼拜)(?:以)?后/, unit: 'w' },
+      { re: /([一二两三四五六七八九十\d]{1,3})\s*个?月(?:以)?后/, unit: 'm' },
+    ];
+    function dateAdvanceFrom(text, iso) {
+      const T = String(text || '').slice(0, 4000);
+      if (!T.trim() || !validIso(iso)) return null;
+      // 1) 明确的年月日 / 月日
+      let m = T.match(/(\d{4})\s*[年\-\/.]\s*(\d{1,2})\s*[月\-\/.]\s*(\d{1,2})\s*日?/);
+      let abs = null;
+      if (m) abs = { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+      else {
+        m = T.match(/(?:^|[^\d])(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+        if (m) abs = { y: Number(iso.slice(0, 4)), mo: Number(m[1]), d: Number(m[2]) };
+      }
+      if (abs) {
+        const pad = (n) => String(n).padStart(2, '0');
+        const cand = abs.y + '-' + pad(abs.mo) + '-' + pad(abs.d);
+        const dt = new Date(cand + 'T00:00:00Z');
+        if (validIso(cand) && !isNaN(dt.getTime()) && dt.getUTCMonth() + 1 === abs.mo && dt.getUTCDate() === abs.d && cand > iso) {
+          return { date: cand, by: 'explicit' }; // 只前进不后退：写明的是过去的日期就不动
+        }
+        return null;
+      }
+      // 2) 相对推进：取最大的一处，避免“3天后……第2天”叠加成离谱的跨度
+      let days = 0;
+      DATE_REL.forEach((x) => {
+        const mm = T.match(x.re);
+        if (!mm) return;
+        let n = 0;
+        if (x.d) n = x.d; else { n = parseNum(mm[1]); if (!Number.isFinite(n)) return; }
+        if (x.unit === 'w') n *= 7;
+        if (x.unit === 'm') n *= 30;
+        if (n > days) days = n;
+      });
+      if (days <= 0) return null;
+      days = Math.min(days, 90); // 一条消息最多推进 90 天，避免误读造成离谱跳转
+      const d0 = new Date(iso + 'T00:00:00Z');
+      if (isNaN(d0.getTime())) return null;
+      d0.setUTCDate(d0.getUTCDate() + days);
+      return { date: d0.toISOString().slice(0, 10), by: 'relative', days: days };
+    }
+    /** 暂停期间的唯一动作：按消息里的日期线索推进剧情日期。不调用 AI，不动任何档案。 */
+    async function pausedTick(msgId) {
+      const st = await loadState();
+      if (!isPausedState(st)) return { ok: false, code: 'not_paused' };
+      let text = '';
+      try { const m = await getMessage(msgId); text = m ? String(msgText(m) || '') : ''; } catch (e) { text = ''; }
+      if (!text) return { ok: true, changed: false };
+      const cur = (st.story && validIso(st.story.date)) ? st.story.date : realToday();
+      // 同一条消息只处理一次：TT 有时会连发 MESSAGE_RECEIVED 和 GENERATION_ENDED（同一楼），
+      // 不去重的话日期会被推进两次。
+      const key = String(msgId) + ':' + hashStr(text).toString(36);
+      if (st.meta && st.meta.pausedSeen && st.meta.pausedSeen.k === key) return { ok: true, changed: false, date: cur };
+      const adv = dateAdvanceFrom(text, cur);
+      const next = adv && adv.date !== cur ? adv : null;
+      await mutate((s) => {
+        s.meta = s.meta && typeof s.meta === 'object' ? s.meta : {};
+        s.meta.pausedSeen = { k: key, ts: Date.now() };
+        if (!next) return null;
+        s.story = s.story && typeof s.story === 'object' ? s.story : { date: null, auto: true };
+        s.story.date = next.date;
+        s.story.auto = false;
+        return null;
+      });
+      if (!next) return { ok: true, changed: false, date: cur };
+      const adv2 = next;
+      plog('暂停', { type: '日期变更', status: 'info', text: (adv2.by === 'explicit' ? '按消息写明的日期' : '按消息里的时间推进 ' + adv2.days + ' 天') + '：' + cur + ' → ' + adv2.date });
+      return { ok: true, changed: true, from: cur, date: adv2.date, by: adv2.by, days: adv2.days || 0 };
+    }
     // generation:prepare core. Returns {text, path, block}. Never throws.
     async function prepareInjection(ev, opts) {
       opts = opts || {};
@@ -11543,6 +11633,7 @@ export function createEngine(tavo) {
         const inj = opts.inj || await loadInject();
         if (!inj.enabled) return { text: text, path: 'off', block: '' };
         let st = await loadState();
+        if (isPausedState(st)) return { text: text, path: 'paused', block: '' }; /* [tt-port:pause] 暂停：不注入，不污染上下文 */
         const until = Date.now() + clamp(int(inj.wait, 3000), 0, 15000);
         while (syncBusy(st) && Date.now() < until) { await new Promise((r) => setTimeout(r, 150)); st = await loadState(); }
         if (!trackedList(st).length) return { text: text, path: 'empty', block: '' };
@@ -11681,7 +11772,7 @@ export function createEngine(tavo) {
       chanceBasis: chanceBasis, pctParts: pctParts, applyFertMods: applyFertMods, normFertMod: normFertMod, techMerge: techMerge, consolidateTech: consolidateTech, textSim: textSim, dropKinks: dropKinks, kinksByDays: kinksByDays, kinkPromote: kinkPromote, kinksLine: kinksLine, fadeByDays: fadeByDays, clearItems: clearItems, upsertAnom: upsertAnom, completeJson: completeJson, lastJsonObject: lastJsonObject,
       baseStyleOf: baseStyleOf, styleNowOf: styleNowOf, styleNowDiff: styleNowDiff, revertStyleNow: revertStyleNow, lockBaseAll: lockBaseAll, saveBaseAll: saveBaseAll, editStyleNow: editStyleNow, updateStyleNow: updateStyleNow, fpRowsOf: fpRowsOf, fpTierOf: fpTierOf, fpApplyForm: fpApplyForm, normStyleNow: normStyleNow, applyStyleShift: applyStyleShift, fertParamsNow: fertParamsNow,
       BT: BT, BT_KEYS: BT_KEYS, BT_GROUPS: BT_GROUPS, BIRTH_TEXT: BIRTH_TEXT, BIRTH_TEXT_ZH: BIRTH_TEXT_ZH, btAllowed: btAllowed, btTier: btTier, btZh: btZh, birthOf: birthOf, birthCode: birthCode, birthCodeFrom: birthCodeFrom, normBirth: normBirth, migrateBirth: migrateBirth, birthInited: birthInited, proposeBirth: proposeBirth, confirmBirth: confirmBirth, initBirth: initBirth, parseBirthInit: parseBirthInit, birthInitPrompt: birthInitPrompt, birthFacts: birthFacts, collectBirthDeltas: collectBirthDeltas, foldBirthDeltas: foldBirthDeltas, endRecovRisks: endRecovRisks, birthLine: birthLine, birthDiff: birthDiff, rollBabies: rollBabies, ensureGest: ensureGest, gestDaysOf: gestDaysOf, babiesOf: babiesOf, reconcileBabies: reconcileBabies, carryRisks: carryRisks, riskLabel: riskLabel, applyBirthNow: applyBirthNow, normBirthNow: normBirthNow, birthRecovDays: birthRecovDays, __setBirthImpl: (f) => { birthImpl = typeof f === 'function' ? f : null; },
-      fullBlock: fullBlock, summaryLine: summaryLine, guideText: guideText, computeScene: computeScene, noteRound: noteRound, syncLore: syncLore, isNotReady: isNotReady, notReadyErr: notReadyErr, rebuildLore: rebuildLore, sweepOrphanBooks: sweepOrphanBooks, loreEntries: loreEntries, loreName: loreName, buildPrefix: buildPrefix, buildUrgent: buildUrgent, urgentNotes: urgentNotes, applyBlock: applyBlock, prepareInjection: prepareInjection, previewInjection: previewInjection, injSummary: injSummary, hideAct: hideAct, restoreAct: restoreAct, setFrozen: setFrozen, purgeCharacter: purgeCharacter, nameKey: nameKey, dedupeChars: dedupeChars, pruneSuggest: pruneSuggest, pregDayInfo: pregDayInfo, physMode: physMode, pregDetail: pregDetail, gestViz: gestViz, styleOf: styleOf, styleFallback: styleFallback, normStyle: normStyle, styleLine: styleLine, setStyle: setStyle, regenStyle: regenStyle, styleGuard: styleGuard, applyStyleShift: applyStyleShift, clockAbs: clockAbs, clockStep: clockStep, parseTod: parseTod, fmtClock: fmtClock, fertStart: fertStart, fertTick: fertTick, fertView: fertView, fertTemplateMin: fertTemplateMin, terminatePregnancy: terminatePregnancy, terminationRoute: terminationRoute, lossHazard: lossHazard, lossRoll: lossRoll, recovView: recovView, setNotice: setNotice, dismissNotice: dismissNotice, stripHidden: stripHidden, v3Round: v3Round, riskSplit: riskSplit, MATERNAL_RISKS: MATERNAL_RISKS, phaseOf3: phaseOf3, lossLike: lossLike, __setClock: (v) => { curClock = v; }, fetalSize: fetalSize, fetalVitals: fetalVitals, phaseWatch: phaseWatch, carryOf: carryOf, carryTpl: carryTpl, carryLine: carryLine, transInfo: transInfo, transIntensity: transIntensity, recovFertility: recovFertility, recovOvuDay: recovOvuDay, recovPctAt: recovPctAt, MODES: MODES, sexPlausibility: sexPlausibility, capSexHistory: capSexHistory, scanRecentEvents: scanRecentEvents, regeneratePage: regeneratePage, latestFloorState: latestFloorState, recoveryInfo: recoveryInfo, recovDay: recovDay, recoveryText: recoveryText, startRecovery: startRecovery, creampieCheck: creampieCheck, aiDayCheck: aiDayCheck, detectInvolved: detectInvolved, normTurn: normTurn, computePct: computePct, RECOVERY_DAYS: RECOVERY_DAYS, pregCalClass: pregCalClass, recordConception: recordConception, creampieOf: creampieOf, conceptionText: conceptionText, lastConception: lastConception, conceptionRoll: conceptionRoll, initStagesOf: initStagesOf, sourceStale: sourceStale, markStale: markStale, genCorruption: genCorruption, autoCorruption: autoCorruption, corrSig: corrSig, normCorr: normCorr, aliasesOf: aliasesOf, setAliases: setAliases, mentionedIn: mentionedIn, CORR_LEVELS: CORR_LEVELS, LORE_PREFIX: LORE_PREFIX,
+      fullBlock: fullBlock, summaryLine: summaryLine, guideText: guideText, computeScene: computeScene, noteRound: noteRound, syncLore: syncLore, isNotReady: isNotReady, notReadyErr: notReadyErr, rebuildLore: rebuildLore, sweepOrphanBooks: sweepOrphanBooks, loreEntries: loreEntries, loreName: loreName, buildPrefix: buildPrefix, buildUrgent: buildUrgent, urgentNotes: urgentNotes, applyBlock: applyBlock, prepareInjection: prepareInjection, setPaused: setPaused, isPausedState: isPausedState, pausedTick: pausedTick, dateAdvanceFrom: dateAdvanceFrom, /* [tt-port:pause] */ previewInjection: previewInjection, injSummary: injSummary, hideAct: hideAct, restoreAct: restoreAct, setFrozen: setFrozen, purgeCharacter: purgeCharacter, nameKey: nameKey, dedupeChars: dedupeChars, pruneSuggest: pruneSuggest, pregDayInfo: pregDayInfo, physMode: physMode, pregDetail: pregDetail, gestViz: gestViz, styleOf: styleOf, styleFallback: styleFallback, normStyle: normStyle, styleLine: styleLine, setStyle: setStyle, regenStyle: regenStyle, styleGuard: styleGuard, applyStyleShift: applyStyleShift, clockAbs: clockAbs, clockStep: clockStep, parseTod: parseTod, fmtClock: fmtClock, fertStart: fertStart, fertTick: fertTick, fertView: fertView, fertTemplateMin: fertTemplateMin, terminatePregnancy: terminatePregnancy, terminationRoute: terminationRoute, lossHazard: lossHazard, lossRoll: lossRoll, recovView: recovView, setNotice: setNotice, dismissNotice: dismissNotice, stripHidden: stripHidden, v3Round: v3Round, riskSplit: riskSplit, MATERNAL_RISKS: MATERNAL_RISKS, phaseOf3: phaseOf3, lossLike: lossLike, __setClock: (v) => { curClock = v; }, fetalSize: fetalSize, fetalVitals: fetalVitals, phaseWatch: phaseWatch, carryOf: carryOf, carryTpl: carryTpl, carryLine: carryLine, transInfo: transInfo, transIntensity: transIntensity, recovFertility: recovFertility, recovOvuDay: recovOvuDay, recovPctAt: recovPctAt, MODES: MODES, sexPlausibility: sexPlausibility, capSexHistory: capSexHistory, scanRecentEvents: scanRecentEvents, regeneratePage: regeneratePage, latestFloorState: latestFloorState, recoveryInfo: recoveryInfo, recovDay: recovDay, recoveryText: recoveryText, startRecovery: startRecovery, creampieCheck: creampieCheck, aiDayCheck: aiDayCheck, detectInvolved: detectInvolved, normTurn: normTurn, computePct: computePct, RECOVERY_DAYS: RECOVERY_DAYS, pregCalClass: pregCalClass, recordConception: recordConception, creampieOf: creampieOf, conceptionText: conceptionText, lastConception: lastConception, conceptionRoll: conceptionRoll, initStagesOf: initStagesOf, sourceStale: sourceStale, markStale: markStale, genCorruption: genCorruption, autoCorruption: autoCorruption, corrSig: corrSig, normCorr: normCorr, aliasesOf: aliasesOf, setAliases: setAliases, mentionedIn: mentionedIn, CORR_LEVELS: CORR_LEVELS, LORE_PREFIX: LORE_PREFIX,
       computePct: computePct, pctForCd: pctForCd, levelOfPct: levelOfPct, fmtPct: fmtPct, cycleAt: cycleAt, dayDetail: dayDetail, dayGrid: dayGrid, phaseOfCd: phaseOfCd,
       desireInfo: desireInfo, placeInfo: placeInfo, setPlace: setPlace, physLine: physLine, headerInfo: headerInfo, headerTiles: headerTiles, canonDossier: canonDossier, DOSSIER_SCHEMA: DOSSIER_SCHEMA, dossierTemplate: dossierTemplate, dossierEmpty: dossierEmpty, editDossier: editDossier, compareDossiers: compareDossiers, currentOf: currentOf, initCurrent: initCurrent, updateCurrent: updateCurrent, dossierMissing: dossierMissing, normDossierPatch: normDossierPatch, DOSSIER_TEXT: DOSSIER_TEXT, baselineGuard: () => baselineBlocked, swipeDir: swipeDir, pageStep: pageStep,
       normPct: normPct, normDayNotes: normDayNotes, normDesire: normDesire, normActX: normActX, parseActsField: parseActsField, mergeDayNotes: mergeDayNotes, parseRegen: parseRegen,

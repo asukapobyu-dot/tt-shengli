@@ -117,7 +117,16 @@ export async function startRuntime({ engine: E, tavo, getContext, timers, log })
         try {
             await E.loadAiOpts();
             const cfg = E.config();
-            if (!cfg.enabled || !cfg.autoSync) return;
+            if (!cfg.enabled) return;
+            // 暂停追踪：不分析、不调用 AI（省 token）；只按消息里的日期线索本地推进剧情日期
+            if (typeof E.isPausedState === 'function') {
+                const st0 = await E.loadState().catch(() => null);
+                if (E.isPausedState(st0)) {
+                    if (m0 && m0.hidden !== true && typeof E.pausedTick === 'function') await E.pausedTick(m0.id).catch(() => 0);
+                    return; // 暂停：不分析、不调 AI
+                }
+            }
+            if (!cfg.autoSync) return;
             if (isUserMsg(m0) || m0.hidden === true) return;
             const base = await ensureBaseline();
             const rec = await lastMsgs();

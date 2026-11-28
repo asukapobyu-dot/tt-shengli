@@ -1753,5 +1753,13 @@
  "ttLore.noApi": "世界书接口不可用是正常现象：移植版不写世界书，注入始终走“消息前缀”（读取角色的世界书是正常的）。把注入方式改成“消息前缀”即可消除这条提示。",
  "ttLore.modeLore": "世界书（移植版不支持写入）",
  "ttLore.modePrefix": "消息前缀（推荐）",
- "settings.injectPosition.system": "系统提示（推荐）"
+ "settings.injectPosition.system": "系统提示（推荐）",
+ "uiPause.pause": "暂停追踪",
+ "uiPause.resume": "继续追踪",
+ "uiPause.strip": "追踪已暂停：不再分析、不再注入（省 token，也不影响上下文）。只会在消息写明日期时更新剧情日期。当前日期 {d}。",
+ "uiPause.toastOn": "已暂停：日常聊天不再分析和注入，只记录日期变更。",
+ "uiPause.toastOff": "已继续追踪。",
+ "uiPause.fail": "切换暂停状态失败，请重试。",
+ "uiPause.launcher": "已暂停追踪",
+ "uiPause.noInject": "追踪已暂停：这一轮不会注入任何内容。下面是恢复追踪后会注入的内容。"
 }

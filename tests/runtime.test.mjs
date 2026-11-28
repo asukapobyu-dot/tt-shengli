@@ -276,6 +276,40 @@ await bus.emit(ET.MESSAGE_RECEIVED, 2, 'normal');
 await rt.idle();
 ok(calls.sync.length === n2 + 1, '新聊天：第一条 AI 回复照常自动分析');
 
+// ================= C2. 暂停追踪 =================
+// 暂停：新消息不分析（省 token）、不注入（不污染上下文），只按消息里的日期线索推进剧情日期
+await E.setPaused(false);
+let stP = await E.loadState();
+await E.mutate((s2) => { s2.story = s2.story || { date: null, auto: true }; s2.story.date = '2025-03-10'; s2.story.auto = false; return null; });
+const nP = calls.sync.length;
+await E.setPaused(true);
+host.chat.push(msg('林晚', false, '第二天早上，林晚已经在店里忙活了。'));
+await bus.emit(ET.MESSAGE_RECEIVED, host.chat.length - 1, 'normal');
+await rt.idle(); await tick(10);
+ok(calls.sync.length === nP, '暂停：新回复不触发 AI 分析（省 token）');
+stP = await E.loadState();
+ok(stP.story.date === '2025-03-11', '暂停：仍按消息里的“第二天”推进剧情日期，实际 ' + stP.story.date);
+await rt.interceptor(host.chat, 8192, () => {}, 'normal');
+ok(host.prompts[PROMPT_KEY].value === '', '暂停：注入为空（不污染上下文）');
+// 没有日期线索的消息不改日期
+host.chat.push(msg('林晚', false, '她把咖啡放在桌上，笑了一下。'));
+await bus.emit(ET.MESSAGE_RECEIVED, host.chat.length - 1, 'normal');
+await rt.idle(); await tick(10);
+stP = await E.loadState();
+ok(stP.story.date === '2025-03-11' && calls.sync.length === nP, '暂停：普通对话既不分析也不改日期');
+// 恢复后立刻照常分析
+await E.setPaused(false);
+host.chat.push(msg('林晚', false, '她抬头看着你。'));
+await bus.emit(ET.MESSAGE_RECEIVED, host.chat.length - 1, 'normal');
+await rt.idle(); await tick(10);
+// 恢复后会把暂停期间漏掉的楼一起补上（最多 2 条更早的 + 最新一条），所以这里是 >= 1
+ok(calls.sync.length >= nP + 1, '恢复：新回复重新进入自动分析（含补漏），实际 ' + (calls.sync.length - nP) + ' 次');
+await rt.interceptor(host.chat, 8192, () => {}, 'normal');
+const stR = await E.loadState();
+ok(stR.meta.paused === false, '恢复：状态回到未暂停');
+ok(E.trackedList(stR).length === 0, '（前提）这个新聊天还没有追踪角色');
+ok(host.prompts[PROMPT_KEY].value === '', '恢复：没有追踪角色 → 注入为空（不是因为暂停）');
+
 // ================= D. stop =================
 rt.stop();
 for (const k of Object.keys(ET)) ok(bus.count(ET[k]) === 0, 'stop 后已解绑 ' + k);

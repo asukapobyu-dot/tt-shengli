@@ -23,6 +23,9 @@ export function mountPanel(PHYS, tavo) {
     undo: svg('<path d="M6 4L3 7l3 3"/><path d="M3 7h6a4 4 0 0 1 0 8H7"/>'),
     prev: svg('<path d="M10 3.5L5.5 8l4.5 4.5"/>'),
     next: svg('<path d="M6 3.5L10.5 8 6 12.5"/>'),
+    // [tt-port:pause] 暂停追踪 / 继续追踪
+    pause: svg('<path d="M6 3.5v9M10 3.5v9"/>'),
+    play: svg('<path d="M5.5 3.5L12 8l-6.5 4.5z"/>'),
   };
 
   // Dispose any previous instance (fragment remount / hot reload).
@@ -503,6 +506,7 @@ export function mountPanel(PHYS, tavo) {
     if (!d) return '';
     if (d.err) return '<p class="phys-status err">' + esc(d.err) + '</p>';
     let h = injNowCard(d.summary);
+    if (pausedNow()) h += '<p class="phys-status warn">' + esc(t('uiPause.noInject')) + '</p>'; // [tt-port:pause] 暂停中：下面是恢复后会注入的内容
     h += '<p class="phys-muted">' + esc(t('ui6.pv.scene', { full: d.full.join('、') || '—', brief: d.brief.join('、') || '—' })) + '</p>';
     if (d.mode === 'lore' && d.apiOk) {
       h += '<div class="phys-subhead">' + esc(t('ui6.pv.lore', { strategy: t('ui7.inj.strategy.' + d.strategy) })) + '</div><p class="phys-muted">' + esc(t('ui7.pv.scene.' + d.scene)) + '</p>';
@@ -1135,6 +1139,15 @@ export function mountPanel(PHYS, tavo) {
     if (list.length < 2) h += '<div class="ros-empty"><p>' + esc(t(list.length ? 'ui8.ros.one' : 'ui.noChars')) + '</p><p class="phys-muted">' + esc(t('ui8.ros.help')) + '</p></div>';
     h += card('ros-tools', t('ui8.ros.tools'), t('ui8.ros.toolsHint'), rosterTools());
     return h;
+  }
+  // [tt-port:pause] 暂停追踪：不分析、不注入，只记录日期变更
+  function pausedNow() { return !!(st && st.meta && st.meta.paused === true); }
+  function renderPauseStrip() {
+    if (!pausedNow()) return '';
+    return '<div class="phys-row phys-pausestrip" role="status">' +
+      '<span class="phys-status warn">' + esc(t('uiPause.strip', { d: st.story && st.story.date ? st.story.date : '—' })) + '</span>' +
+      '<button type="button" class="phys-btn small" data-act="track-pause">' + esc(t('uiPause.resume')) + '</button>' +
+      '</div>';
   }
   function renderTabs() {
     return '<nav class="phys-tabs2" role="tablist">' + PAGES.map((p) => '<button type="button" role="tab" class="phys-tab2' + (p === page ? ' on' : '') + '" data-act="page" data-page="' + p + '" aria-selected="' + (p === page ? 'true' : 'false') + '">' + esc(t('ui2.tab.' + p)) + '</button>').join('') + '<i class="phys-ul" aria-hidden="true"></i></nav>';
@@ -2106,6 +2119,7 @@ export function mountPanel(PHYS, tavo) {
     const auto = E.config().autoSync;
     const busy = syncReq || E.syncBusy(st);
     let cls = s.state, label;
+    if (pausedNow()) return { cls: 'idle', label: t('uiPause.launcher'), busy: busy, s: s, auto: auto }; // [tt-port:pause] 暂停时启动按钮直接显示“已暂停”
     if (syncReq && !(s.state === 'start' || s.state === 'running')) { cls = 'start'; label = t('ui3.sync.start'); }
     else if (s.state === 'start') label = t('ui3.sync.start');
     else if (s.state === 'running') label = t('ui3.sync.running') + (s.step ? ' · ' + t('ui3.sync.step.' + s.step) : '');
@@ -2409,6 +2423,7 @@ export function mountPanel(PHYS, tavo) {
       h += '<div class="phys-head" data-drag="panel"><span class="phys-grip" aria-hidden="true"></span><span class="phys-title">' + esc(inScan ? t('ui.scan.title') : t('ui.title')) + '</span><span class="phys-sp"></span>' +
         (inScan ? ib('scan-cancel', '', t('ui.settings.back'), ICON.back) : '') +
         ((!inScan && st.history && st.history.length) ? ib('undo-last', '', t('ui.hist.undoLast'), ICON.undo) : '') +
+        ib('track-pause', ' data-on="' + (pausedNow() ? '1' : '0') + '" aria-pressed="' + (pausedNow() ? 'true' : 'false') + '"', t(pausedNow() ? 'uiPause.resume' : 'uiPause.pause'), pausedNow() ? ICON.play : ICON.pause) + /* [tt-port:pause] */
         ib('rescan', '', t('ui.rescan'), ICON.refresh) +
         ib('collapse', '', st.panel.collapsed ? t('ui.expand') : t('ui.collapse'), st.panel.collapsed ? ICON.down : ICON.up) +
         ib('close', '', t('ui.close'), ICON.close) + '</div>';
@@ -2417,6 +2432,7 @@ export function mountPanel(PHYS, tavo) {
         else {
           if (c) h += '<div class="hd-stack" data-role="hd-stack">' + renderHeader(c) + '</div>';
           h += renderTabs();
+          h += renderPauseStrip(); /* [tt-port:pause] */
           let body;
           if (page === 'settings') body = renderSettings(c);
           else if (page === 'roster') body = pageRoster(c);
@@ -2601,6 +2617,14 @@ export function mountPanel(PHYS, tavo) {
       case 'close': await editPanel((p) => { p.open = false; }); render(); break;
       case 'collapse': await editPanel((p) => { p.collapsed = !p.collapsed; }); render(); break;
       case 'rescan': await doRescan(); break;
+      case 'track-pause': { /* [tt-port:pause] */
+        const on = !pausedNow();
+        try { await E.setPaused(on); } catch (e) { await toastText(t('uiPause.fail')); break; }
+        await refreshFromStore(true);
+        render();
+        await toastText(on ? t('uiPause.toastOn') : t('uiPause.toastOff'));
+        break;
+      }
       /* [tt-port:age-ui] */
       case 'adult-ask': { const k0 = btn.dataset.kind; const id0 = btn.dataset.id; const ch0 = k0 === 'char' ? st.characters[id0] : null; adultAsk = { kind: k0, id: id0, name: btn.dataset.name || '', age: ch0 && ch0.cardAge >= 18 ? ch0.cardAge : '', msg: '' }; render(); break; }
       case 'adult-cancel': adultAsk = null; render(); break;
